@@ -277,10 +277,12 @@ Implementation design then decides how the approved modules and constraints will
 
 Implementation discovery should be treated as a serious engineering decision workflow, not a quick setup step.
 It is where languages, frameworks, libraries, toolchains, buy-vs-build choices, delivery risks, licensing, compatibility, release engineering, ownership, and evidence thresholds are evaluated explicitly.
+It should also emit a mandatory implementation-context artifact that downstream implementation steps must consume so agents do not silently re-decide approved dependencies, tools, or forbidden substitutions.
 Unless a project says otherwise, team-fit reasoning during implementation discovery should assume an LLM-driven engineering team with humans acting primarily as approvers, reviewers, and escalation points.
 
 Implementation design should be treated with the same seriousness.
 It is where the chosen implementation profile is turned into the actual source-tree layout, build graph, internal interface map, persistence plan, runtime plan, verification mapping, repo migration strategy, and concrete implementation packets.
+Implementation design, implementation execution, and implementation verification should all inherit the mandatory implementation-context artifact rather than relying on agents to rediscover prior technology selections from scattered docs or decisions.
 When a project emits follow-on product docs from design or implementation design, those outputs should be placed in an ordered project-doc folder with numbered sibling files and a matching ordered README index.
 
 Example:

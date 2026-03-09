@@ -42,6 +42,7 @@ Implementation design consumes:
 
 - approved design state
 - approved implementation-discovery outputs
+- approved mandatory implementation-context manifest from implementation discovery
 - implementation-handoff artifacts
 - approved contracts and schemas
 - approved invariants
@@ -63,6 +64,7 @@ Mandatory reasoning:
 
 - what is already fixed by design
 - what is already fixed by implementation discovery
+- what mandatory implementation context applies to implementation design and must not be re-decided locally
 - what implementation design is allowed to choose
 - what would require escalation if changed
 
@@ -73,7 +75,7 @@ Minimal artifact:
 
 Gate:
 
-- the team knows what implementation design owns and what remains outside its authority
+- the team knows what implementation design owns, what mandatory implementation context it must inherit, and what remains outside its authority
 
 ## 2. Inspect Repository Reality
 

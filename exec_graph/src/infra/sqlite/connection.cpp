@@ -18,6 +18,7 @@ int sqlite3_bind_int64(sqlite3_stmt*, int, long long);
 int sqlite3_step(sqlite3_stmt*);
 int sqlite3_finalize(sqlite3_stmt* pStmt);
 int sqlite3_reset(sqlite3_stmt* pStmt);
+int sqlite3_busy_timeout(sqlite3*, int ms);
 const unsigned char* sqlite3_column_text(sqlite3_stmt*, int iCol);
 long long sqlite3_column_int64(sqlite3_stmt*, int iCol);
 }
@@ -111,11 +112,13 @@ std::int64_t Statement::column_int64(const int index) const {
     return static_cast<std::int64_t>(sqlite3_column_int64(handle_, index));
 }
 
-Connection::Connection(const std::string& path) : handle_(nullptr) {
+Connection::Connection(const std::string& path) : handle_(nullptr), in_transaction_(false) {
     const int rc = sqlite3_open_v2(path.c_str(), &handle_, kSqliteOpenReadWrite | kSqliteOpenCreate, nullptr);
     if (rc != kSqliteOk) {
         throw_sqlite_error(handle_, "failed to open sqlite database");
     }
+    check_result(handle_, sqlite3_busy_timeout(handle_, 5000), "failed to set sqlite busy timeout");
+    execute("PRAGMA foreign_keys = ON");
 }
 
 Connection::~Connection() {
@@ -144,14 +147,41 @@ Statement Connection::prepare(const std::string& sql) const {
 
 void Connection::begin_immediate() {
     execute("BEGIN IMMEDIATE");
+    in_transaction_ = true;
 }
 
 void Connection::commit() {
     execute("COMMIT");
+    in_transaction_ = false;
 }
 
 void Connection::rollback() {
     execute("ROLLBACK");
+    in_transaction_ = false;
+}
+
+bool Connection::in_transaction() const {
+    return in_transaction_;
+}
+
+Transaction::Transaction(Connection& connection) : connection_(connection), committed_(false) {
+    connection_.begin_immediate();
+}
+
+Transaction::~Transaction() {
+    if (!committed_ && connection_.in_transaction()) {
+        try {
+            connection_.rollback();
+        } catch (...) {
+        }
+    }
+}
+
+void Transaction::commit() {
+    if (!committed_) {
+        connection_.commit();
+        committed_ = true;
+    }
 }
 
 }  // namespace exec_graph::infra::sqlite

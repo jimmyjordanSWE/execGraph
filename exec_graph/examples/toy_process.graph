@@ -1,5 +1,5 @@
 # Minimal graph-shaped workflow over common Linux processes.
-node source cat exec_graph/examples/fruit.txt
+node source cat fruit.txt
 node upper tr a-z A-Z
 node sorted sort
 node count uniq -c

@@ -16,6 +16,7 @@ struct GraphEdge {
 };
 
 struct GraphDocument {
+    std::string working_directory;
     std::vector<GraphNode> nodes;
     std::vector<GraphEdge> edges;
 };

@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <array>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <poll.h>
 #include <sstream>
@@ -152,6 +153,10 @@ std::string json_escape(const std::string& value) {
     return escaped;
 }
 
+std::string workflow_step_subject(const std::size_t step_index) {
+    return "workflow.step." + std::to_string(step_index + 1);
+}
+
 }  // namespace
 
 std::vector<ProcessSpec> load_workflow(const std::string& workflow_path) {
@@ -167,7 +172,7 @@ std::vector<ProcessSpec> load_workflow(const std::string& workflow_path) {
         }
         auto tokens = split_whitespace(line);
         if (!tokens.empty()) {
-            workflow.push_back(ProcessSpec{std::move(tokens)});
+            workflow.push_back(ProcessSpec{std::move(tokens), std::filesystem::absolute(std::filesystem::path(workflow_path)).parent_path().string()});
         }
     }
 
@@ -203,6 +208,11 @@ ProcessResult run_process(const std::string& subject,
     }
 
     if (pid == 0) {
+        if (!spec.working_directory.empty() && chdir(spec.working_directory.c_str()) != 0) {
+            const std::string message = "chdir failed for " + spec.working_directory + ": " + std::strerror(errno) + "\n";
+            (void)!write(STDERR_FILENO, message.c_str(), message.size());
+            _exit(127);
+        }
         dup2(stdin_pipe[0], STDIN_FILENO);
         dup2(stdout_pipe[1], STDOUT_FILENO);
         dup2(stderr_pipe[1], STDERR_FILENO);
@@ -269,29 +279,199 @@ std::string run_workflow(const std::vector<ProcessSpec>& workflow) {
 std::string run_workflow(const std::vector<ProcessSpec>& workflow,
                          const std::function<void(const ProcessEvent&)>& event_sink) {
     std::string current_output;
-    for (const auto& process : workflow) {
-        const auto result = run_process("command", process, current_output, event_sink);
+    const auto step_count = static_cast<int>(workflow.size());
+    int completed_step_count = 0;
+
+    if (event_sink) {
+        event_sink(build_workflow_started_event(step_count));
+    }
+
+    for (std::size_t step_index = 0; step_index < workflow.size(); ++step_index) {
+        const auto& process = workflow[step_index];
+        const auto subject = workflow_step_subject(step_index);
+
         if (event_sink) {
-            event_sink(build_process_event("command", result));
+            event_sink(build_workflow_step_started_event(subject, step_count, completed_step_count));
+        }
+
+        const auto result = run_process(subject, process, current_output, event_sink);
+        if (event_sink) {
+            event_sink(build_process_event(subject, result));
         }
         if (result.exit_code != 0) {
-            throw std::runtime_error(format_process_failure("command", process, result));
+            if (event_sink) {
+                event_sink(build_workflow_step_failed_event(subject, step_count, completed_step_count, result));
+                event_sink(build_workflow_failed_event(step_count, completed_step_count, subject, result));
+            }
+            throw std::runtime_error(format_process_failure(subject, process, result));
         }
         current_output = result.stdout_data;
+        ++completed_step_count;
+
+        if (event_sink) {
+            event_sink(build_workflow_step_completed_event(subject, step_count, completed_step_count, result));
+        }
+    }
+
+    if (event_sink) {
+        event_sink(build_workflow_completed_event(step_count));
     }
     return current_output;
+}
+
+ProcessEvent build_workflow_started_event(const int step_count) {
+    ProcessEvent event;
+    event.name = "workflow.started";
+    event.subject = "workflow";
+    event.related_subject = "";
+    event.pid = 0;
+    event.exit_code = 0;
+    event.signal_number = 0;
+    event.terminal_cause = "";
+    event.stream_name = "";
+    event.byte_count = 0;
+    event.step_count = step_count;
+    event.completed_step_count = 0;
+    event.node_count = 0;
+    event.sink_count = 0;
+    event.completed_node_count = 0;
+    event.stdout_excerpt = "";
+    event.stderr_excerpt = "";
+    return event;
+}
+
+ProcessEvent build_workflow_completed_event(const int step_count) {
+    ProcessEvent event;
+    event.name = "workflow.completed";
+    event.subject = "workflow";
+    event.related_subject = "";
+    event.pid = 0;
+    event.exit_code = 0;
+    event.signal_number = 0;
+    event.terminal_cause = "exit_zero";
+    event.stream_name = "";
+    event.byte_count = 0;
+    event.step_count = step_count;
+    event.completed_step_count = step_count;
+    event.node_count = 0;
+    event.sink_count = 0;
+    event.completed_node_count = 0;
+    event.stdout_excerpt = "";
+    event.stderr_excerpt = "";
+    return event;
+}
+
+ProcessEvent build_workflow_failed_event(const int step_count,
+                                         const int completed_step_count,
+                                         const std::string& failed_step,
+                                         const ProcessResult& result) {
+    ProcessEvent event;
+    event.name = "workflow.failed";
+    event.subject = "workflow";
+    event.related_subject = failed_step;
+    event.pid = result.pid;
+    event.exit_code = result.exit_code;
+    event.signal_number = result.signal_number;
+    event.terminal_cause = result.signaled ? "signal" : "exit_non_zero";
+    event.stream_name = "";
+    event.byte_count = 0;
+    event.step_count = step_count;
+    event.completed_step_count = completed_step_count;
+    event.node_count = 0;
+    event.sink_count = 0;
+    event.completed_node_count = 0;
+    event.stdout_excerpt = truncate_excerpt(result.stdout_data);
+    event.stderr_excerpt = trim_trailing_newlines(result.stderr_data);
+    return event;
+}
+
+ProcessEvent build_workflow_step_started_event(const std::string& step_name,
+                                               const int step_count,
+                                               const int completed_step_count) {
+    ProcessEvent event;
+    event.name = "workflow.step.started";
+    event.subject = step_name;
+    event.related_subject = "workflow";
+    event.pid = 0;
+    event.exit_code = 0;
+    event.signal_number = 0;
+    event.terminal_cause = "";
+    event.stream_name = "";
+    event.byte_count = 0;
+    event.step_count = step_count;
+    event.completed_step_count = completed_step_count;
+    event.node_count = 0;
+    event.sink_count = 0;
+    event.completed_node_count = 0;
+    event.stdout_excerpt = "";
+    event.stderr_excerpt = "";
+    return event;
+}
+
+ProcessEvent build_workflow_step_completed_event(const std::string& step_name,
+                                                 const int step_count,
+                                                 const int completed_step_count,
+                                                 const ProcessResult& result) {
+    ProcessEvent event;
+    event.name = "workflow.step.completed";
+    event.subject = step_name;
+    event.related_subject = "workflow";
+    event.pid = result.pid;
+    event.exit_code = result.exit_code;
+    event.signal_number = result.signal_number;
+    event.terminal_cause = "exit_zero";
+    event.stream_name = "stdout";
+    event.byte_count = static_cast<int>(result.stdout_data.size());
+    event.step_count = step_count;
+    event.completed_step_count = completed_step_count;
+    event.node_count = 0;
+    event.sink_count = 0;
+    event.completed_node_count = 0;
+    event.stdout_excerpt = truncate_excerpt(result.stdout_data);
+    event.stderr_excerpt = trim_trailing_newlines(result.stderr_data);
+    return event;
+}
+
+ProcessEvent build_workflow_step_failed_event(const std::string& step_name,
+                                              const int step_count,
+                                              const int completed_step_count,
+                                              const ProcessResult& result) {
+    ProcessEvent event;
+    event.name = "workflow.step.failed";
+    event.subject = step_name;
+    event.related_subject = "workflow";
+    event.pid = result.pid;
+    event.exit_code = result.exit_code;
+    event.signal_number = result.signal_number;
+    event.terminal_cause = result.signaled ? "signal" : "exit_non_zero";
+    event.stream_name = result.stderr_data.empty() ? "stdout" : "stderr";
+    event.byte_count = static_cast<int>(result.stderr_data.empty() ? result.stdout_data.size() : result.stderr_data.size());
+    event.step_count = step_count;
+    event.completed_step_count = completed_step_count;
+    event.node_count = 0;
+    event.sink_count = 0;
+    event.completed_node_count = 0;
+    event.stdout_excerpt = truncate_excerpt(result.stdout_data);
+    event.stderr_excerpt = trim_trailing_newlines(result.stderr_data);
+    return event;
 }
 
 ProcessEvent build_process_started_event(const std::string& subject, const int pid) {
     ProcessEvent event;
     event.name = "process.started";
     event.subject = subject;
+    event.related_subject = "";
     event.pid = pid;
     event.exit_code = 0;
     event.signal_number = 0;
     event.terminal_cause = "";
     event.stream_name = "";
     event.byte_count = 0;
+    event.step_count = 0;
+    event.completed_step_count = 0;
+    event.node_count = 0;
+    event.sink_count = 0;
+    event.completed_node_count = 0;
     event.stdout_excerpt = "";
     event.stderr_excerpt = "";
     return event;
@@ -304,12 +484,18 @@ ProcessEvent build_process_stream_event(const std::string& subject,
     ProcessEvent event;
     event.name = "process.output";
     event.subject = subject;
+    event.related_subject = "";
     event.pid = pid;
     event.exit_code = 0;
     event.signal_number = 0;
     event.terminal_cause = "";
     event.stream_name = stream_name;
     event.byte_count = static_cast<int>(data.size());
+    event.step_count = 0;
+    event.completed_step_count = 0;
+    event.node_count = 0;
+    event.sink_count = 0;
+    event.completed_node_count = 0;
     event.stdout_excerpt = stream_name == "stdout" ? truncate_excerpt(data) : "";
     event.stderr_excerpt = stream_name == "stderr" ? truncate_excerpt(data) : "";
     return event;
@@ -318,11 +504,17 @@ ProcessEvent build_process_stream_event(const std::string& subject,
 ProcessEvent build_process_event(const std::string& subject, const ProcessResult& result) {
     ProcessEvent event;
     event.subject = subject;
+    event.related_subject = "";
     event.pid = result.pid;
     event.exit_code = result.exit_code;
     event.signal_number = result.signal_number;
     event.stream_name = "";
     event.byte_count = 0;
+    event.step_count = 0;
+    event.completed_step_count = 0;
+    event.node_count = 0;
+    event.sink_count = 0;
+    event.completed_node_count = 0;
     event.stdout_excerpt = truncate_excerpt(result.stdout_data);
     event.stderr_excerpt = trim_trailing_newlines(result.stderr_data);
 
@@ -340,6 +532,147 @@ ProcessEvent build_process_event(const std::string& subject, const ProcessResult
         event.terminal_cause = "unknown";
     }
 
+    return event;
+}
+
+ProcessEvent build_graph_started_event(const int node_count, const int sink_count) {
+    ProcessEvent event;
+    event.name = "graph.started";
+    event.subject = "graph";
+    event.related_subject = "";
+    event.pid = 0;
+    event.exit_code = 0;
+    event.signal_number = 0;
+    event.terminal_cause = "";
+    event.stream_name = "";
+    event.byte_count = 0;
+    event.step_count = 0;
+    event.completed_step_count = 0;
+    event.node_count = node_count;
+    event.sink_count = sink_count;
+    event.completed_node_count = 0;
+    event.stdout_excerpt = "";
+    event.stderr_excerpt = "";
+    return event;
+}
+
+ProcessEvent build_graph_completed_event(const int node_count, const int sink_count) {
+    ProcessEvent event;
+    event.name = "graph.completed";
+    event.subject = "graph";
+    event.related_subject = "";
+    event.pid = 0;
+    event.exit_code = 0;
+    event.signal_number = 0;
+    event.terminal_cause = "exit_zero";
+    event.stream_name = "";
+    event.byte_count = 0;
+    event.step_count = 0;
+    event.completed_step_count = 0;
+    event.node_count = node_count;
+    event.sink_count = sink_count;
+    event.completed_node_count = node_count;
+    event.stdout_excerpt = "";
+    event.stderr_excerpt = "";
+    return event;
+}
+
+ProcessEvent build_graph_failed_event(const int node_count,
+                                      const int sink_count,
+                                      const int completed_node_count,
+                                      const std::string& failed_node,
+                                      const ProcessResult& result) {
+    ProcessEvent event;
+    event.name = "graph.failed";
+    event.subject = "graph";
+    event.related_subject = failed_node;
+    event.pid = result.pid;
+    event.exit_code = result.exit_code;
+    event.signal_number = result.signal_number;
+    event.terminal_cause = result.signaled ? "signal" : "exit_non_zero";
+    event.stream_name = "";
+    event.byte_count = 0;
+    event.step_count = 0;
+    event.completed_step_count = 0;
+    event.node_count = node_count;
+    event.sink_count = sink_count;
+    event.completed_node_count = completed_node_count;
+    event.stdout_excerpt = truncate_excerpt(result.stdout_data);
+    event.stderr_excerpt = trim_trailing_newlines(result.stderr_data);
+    return event;
+}
+
+ProcessEvent build_graph_node_started_event(const std::string& node_name,
+                                            const int node_count,
+                                            const int sink_count,
+                                            const int completed_node_count) {
+    ProcessEvent event;
+    event.name = "graph.node.started";
+    event.subject = node_name;
+    event.related_subject = "graph";
+    event.pid = 0;
+    event.exit_code = 0;
+    event.signal_number = 0;
+    event.terminal_cause = "";
+    event.stream_name = "";
+    event.byte_count = 0;
+    event.step_count = 0;
+    event.completed_step_count = 0;
+    event.node_count = node_count;
+    event.sink_count = sink_count;
+    event.completed_node_count = completed_node_count;
+    event.stdout_excerpt = "";
+    event.stderr_excerpt = "";
+    return event;
+}
+
+ProcessEvent build_graph_node_completed_event(const std::string& node_name,
+                                              const int node_count,
+                                              const int sink_count,
+                                              const int completed_node_count,
+                                              const ProcessResult& result) {
+    ProcessEvent event;
+    event.name = "graph.node.completed";
+    event.subject = node_name;
+    event.related_subject = "graph";
+    event.pid = result.pid;
+    event.exit_code = result.exit_code;
+    event.signal_number = result.signal_number;
+    event.terminal_cause = "exit_zero";
+    event.stream_name = "stdout";
+    event.byte_count = static_cast<int>(result.stdout_data.size());
+    event.step_count = 0;
+    event.completed_step_count = 0;
+    event.node_count = node_count;
+    event.sink_count = sink_count;
+    event.completed_node_count = completed_node_count;
+    event.stdout_excerpt = truncate_excerpt(result.stdout_data);
+    event.stderr_excerpt = trim_trailing_newlines(result.stderr_data);
+    return event;
+}
+
+ProcessEvent build_graph_node_failed_event(const std::string& node_name,
+                                           const int node_count,
+                                           const int sink_count,
+                                           const int completed_node_count,
+                                           const ProcessResult& result) {
+    ProcessEvent event;
+    event.name = "graph.node.failed";
+    event.subject = node_name;
+    event.related_subject = "graph";
+    event.pid = result.pid;
+    event.exit_code = result.exit_code;
+    event.signal_number = result.signal_number;
+    event.terminal_cause = result.signaled ? "signal" : "exit_non_zero";
+    event.stream_name = result.stderr_data.empty() ? "stdout" : "stderr";
+    event.byte_count = static_cast<int>(result.stderr_data.empty() ? result.stdout_data.size() : result.stderr_data.size());
+    event.step_count = 0;
+    event.completed_step_count = 0;
+    event.node_count = node_count;
+    event.sink_count = sink_count;
+    event.completed_node_count = completed_node_count;
+    event.stdout_excerpt = truncate_excerpt(result.stdout_data);
+    event.stderr_excerpt = trim_trailing_newlines(result.stderr_data);
     return event;
 }
 
@@ -369,12 +702,18 @@ std::string render_process_event_json(const ProcessEvent& event) {
     out << '{'
         << "\"name\":\"" << json_escape(event.name) << "\","
         << "\"subject\":\"" << json_escape(event.subject) << "\","
+        << "\"related_subject\":\"" << json_escape(event.related_subject) << "\"," 
         << "\"pid\":" << event.pid << ','
         << "\"exit_code\":" << event.exit_code << ','
         << "\"signal_number\":" << event.signal_number << ','
         << "\"terminal_cause\":\"" << json_escape(event.terminal_cause) << "\","
         << "\"stream_name\":\"" << json_escape(event.stream_name) << "\","
         << "\"byte_count\":" << event.byte_count << ','
+        << "\"step_count\":" << event.step_count << ','
+        << "\"completed_step_count\":" << event.completed_step_count << ','
+        << "\"node_count\":" << event.node_count << ','
+        << "\"sink_count\":" << event.sink_count << ','
+        << "\"completed_node_count\":" << event.completed_node_count << ','
         << "\"stdout_excerpt\":\"" << json_escape(event.stdout_excerpt) << "\","
         << "\"stderr_excerpt\":\"" << json_escape(event.stderr_excerpt) << "\""
         << '}';

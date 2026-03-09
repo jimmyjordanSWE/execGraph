@@ -95,6 +95,7 @@ This is intentionally small but already exercises:
 - sequential dataflow
 - output capture
 - exit-code enforcement
+- file-local command execution for file-based workflows
 
 The second pass also moved the process execution logic out of `main` and into reusable runtime functions:
 
@@ -117,6 +118,7 @@ The current graph document supports:
 - unknown-node rejection
 - cycle rejection
 - topological execution of DAG-shaped process graphs
+- file-local execution for file-based graphs so example command paths resolve relative to the graph file
 - per-process stderr capture for failing nodes and commands
 
 A real graph example now exists in:
@@ -147,25 +149,44 @@ The current pass replaced repository-local schema setup with a real migration pa
 
 - append-only SQL migration files under `exec_graph/migrations/`
 - `exec_graph::infra::sqlite::MigrationRunner`
+- `exec_graph::infra::sqlite::Transaction` for rollback-safe write scopes
 - a dedicated `eg_migrate` executable
 - stored-graph save/load flows now apply migrations before touching repository code
+- migration execution now reports discovered/applied/skipped counts so idempotency is visible in verification
+- the default `eg_migrate` migration path now resolves correctly from either the repo root or the `exec_graph/` product root
 
 The latest pass hardened the verification surface around that implementation:
 
 - `exec_graph/CMakePresets.json` now defines `debug`, `asan-ubsan`, and `tsan`
 - `exec_graph/tests/verification/run_tsan_matrix.sh`
 - `exec_graph/tests/verification/run_valgrind_graph_smoke.sh`
+- `exec_graph/tests/smoke/run_migration_idempotent.sh`
+- `exec_graph/tests/smoke/run_workflow_events.sh`
+- `exec_graph/tests/smoke/run_relative_example_paths.sh`
 
 The current pass introduced the first structured runtime-event surface:
 
+- `workflow.started`
+- `workflow.step.started`
 - `process.started`
 - `process.output`
 - `process.completed`
 - `process.failed`
 - `process.killed`
+- `workflow.step.completed`
+- `workflow.step.failed`
+- `workflow.completed`
+- `workflow.failed`
+- `graph.started`
+- `graph.node.started`
+- `graph.node.completed`
+- `graph.node.failed`
+- `graph.completed`
+- `graph.failed`
 - JSONL event rendering from the runtime layer
 - `--emit-events-jsonl` in `eg_demo_pipeline`
-- graph execution now emits per-node terminal events on both success and failure
+- workflow execution now emits workflow-run events, workflow-step progress events, and per-process terminal events on both success and failure
+- graph execution now emits graph-run events, graph-layer per-node progress events, and per-process terminal events on both success and failure
 
 ## Verification Evidence
 
@@ -229,7 +250,9 @@ Persistence-path observations:
 Migration-path observation:
 
 - explicit migration execution now reports:
-  - `applied migrations from exec_graph/migrations to /tmp/exec_graph_migrate.<id>.db`
+  - `applied migrations from exec_graph/migrations to /tmp/exec_graph_migrate.<id>.db (discovered=2, applied=2, skipped=0)`
+- rerunning the same migration set now reports:
+  - `applied migrations from exec_graph/migrations to /tmp/exec_graph_migrate.<id>.db (discovered=2, applied=0, skipped=2)`
 
 Hardening-path observations:
 
@@ -238,14 +261,43 @@ Hardening-path observations:
 
 Structured-events observations:
 
+- successful workflow execution now emits JSONL entries such as:
+  - `{"name":"workflow.started","subject":"workflow",...,"step_count":4,...}`
+  - `{"name":"workflow.step.started","subject":"workflow.step.1",...,"related_subject":"workflow",...,"completed_step_count":0,...}`
+  - `{"name":"process.started","subject":"workflow.step.1",...}`
+  - `{"name":"process.completed","subject":"workflow.step.1",...,"terminal_cause":"exit_zero",...}`
+  - `{"name":"workflow.step.completed","subject":"workflow.step.1",...,"byte_count":32,...}`
+  - `{"name":"workflow.completed","subject":"workflow",...,"completed_step_count":4,...}`
+- failing workflow execution now emits JSONL entries such as:
+  - `{"name":"workflow.started","subject":"workflow",...,"step_count":1,...}`
+  - `{"name":"workflow.step.started","subject":"workflow.step.1",...,"related_subject":"workflow",...,"completed_step_count":0,...}`
+  - `{"name":"process.failed","subject":"workflow.step.1",...,"terminal_cause":"exit_non_zero",...}`
+  - `{"name":"workflow.step.failed","subject":"workflow.step.1",...,"stream_name":"stderr",...}`
+  - `{"name":"workflow.failed","subject":"workflow",...,"related_subject":"workflow.step.1",...,"completed_step_count":0,...}`
 - successful graph execution now emits JSONL entries such as:
+  - `{"name":"graph.started","subject":"graph",...,"node_count":4,"sink_count":1,...}`
+  - `{"name":"graph.node.started","subject":"count",...,"related_subject":"graph",...,"completed_node_count":3,...}`
   - `{"name":"process.started","subject":"count",...}`
   - `{"name":"process.output","subject":"count",...,"stream_name":"stdout",...}`
   - `{"name":"process.completed","subject":"count",...,"terminal_cause":"exit_zero",...}`
+  - `{"name":"graph.node.completed","subject":"count",...,"byte_count":26,...}`
+  - `{"name":"graph.completed","subject":"graph",...,"completed_node_count":4,...}`
 - failing graph execution now emits JSONL entries such as:
+  - `{"name":"graph.started","subject":"graph",...,"node_count":1,...}`
+  - `{"name":"graph.node.started","subject":"fail",...,"related_subject":"graph",...,"completed_node_count":0,...}`
   - `{"name":"process.started","subject":"fail",...}`
   - `{"name":"process.output","subject":"fail",...,"stream_name":"stderr",...}`
   - `{"name":"process.failed","subject":"fail",...,"terminal_cause":"exit_non_zero",...}`
+  - `{"name":"graph.node.failed","subject":"fail",...,"stream_name":"stderr",...}`
+  - `{"name":"graph.failed","subject":"graph",...,"related_subject":"fail",...,"completed_node_count":0,...}`
+
+Path-resolution observations:
+
+- file-based workflow execution now resolves command paths relative to the workflow file directory
+- file-based graph execution now resolves command paths relative to the graph file directory
+- stored-graph save/load now persists the graph working directory so repository roundtrips preserve file-local command resolution
+- the same toy workflow and toy graph now run correctly from both the repo root and the `exec_graph/` product root
+- stored-graph save/load now works from both `eg_migrate` and `eg_demo_pipeline` when launched from either the repo root or the `exec_graph/` product root
 
 ## Residual Risks
 
@@ -253,7 +305,7 @@ Structured-events observations:
 - diagnostics are still text-first rather than structured runtime events
 - the workflow file format is intentionally simple and not yet a stable product contract
 - migration support exists, but still only as a minimal local runner with one schema file
-- runtime diagnostics now have a structured event path, but the event model is still narrow and process-centric
+- runtime diagnostics now cover workflow-run progress, graph-run progress, and per-process lifecycle, but broader scheduler and service surfaces still do not exist
 
 Mitigated in the second pass:
 
@@ -274,6 +326,6 @@ Mitigated in the latest pass:
 The next pass should keep implementation execution on the same node and target the next lowest-risk, highest-value items:
 
 1. continue tightening SQLite infra and repository seams now that migrations are explicit
-2. widen the structured runtime event model beyond per-process lifecycle and captured-stream events
+2. widen the structured runtime event model beyond workflow and graph lifecycle toward scheduler and service surfaces
 3. continue separating graph parsing from stable graph-core contracts
 4. widen runtime examples beyond the current small smoke set

@@ -1,4 +1,6 @@
 #include "exec_graph/graph/graph_document.hpp"
+
+#include <filesystem>
 #include <fstream>
 #include <queue>
 #include <sstream>
@@ -119,7 +121,9 @@ GraphDocument load_graph_document(const std::string& graph_path) {
 
     std::ostringstream buffer;
     buffer << input.rdbuf();
-    return load_graph_document_from_string(buffer.str(), "graph file " + graph_path);
+    auto document = load_graph_document_from_string(buffer.str(), "graph file " + graph_path);
+    document.working_directory = std::filesystem::absolute(std::filesystem::path(graph_path)).parent_path().string();
+    return document;
 }
 
 std::vector<std::string> topological_order(const GraphDocument& document) {

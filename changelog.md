@@ -2,6 +2,15 @@
 
 ## 2026-03-09
 
+- Updated the autoSWE implementation workflow so implementation discovery must emit a mandatory implementation-context artifact, and downstream implementation design, execution, and verification steps must consume it.
+- Widened exec-graph JSONL runtime events with `workflow.started`, `workflow.step.started`, `workflow.step.completed`, `workflow.step.failed`, `workflow.completed`, and `workflow.failed`, plus smoke coverage for workflow-layer progress and terminal outcomes.
+- Fixed file-based workflow and graph execution so command paths resolve relative to the workflow or graph file directory, and added smoke coverage for running examples from the `exec_graph` product root.
+- Persisted stored-graph working directories through SQLite so repository roundtrips keep file-local command resolution intact.
+- Fixed `eg_demo_pipeline` default migration-path resolution so stored-graph save/load also works from the `exec_graph` product root.
+- Widened exec-graph JSONL runtime events again with `graph.node.started`, `graph.node.completed`, and `graph.node.failed`, plus smoke coverage for graph-layer per-node progress.
+- Hardened exec-graph SQLite infra with rollback-safe transaction guards, connection-level busy-timeout and foreign-key setup, and a migration-idempotency smoke test with discovered/applied/skipped reporting.
+- Fixed `eg_migrate` default migration-path resolution so it works from both the repo root and the `exec_graph/` product root.
+- Widened exec-graph JSONL runtime events with `graph.started`, `graph.completed`, and `graph.failed`, plus smoke coverage for graph-level terminal outcomes.
 - Expanded the autoSWE design phase to include explicit `Requirements definition`, `Behavior and workflow design`, `Security and trust-boundary design`, and `Operational design` stages before `Implementation handoff`.
 - Defined `Implementation discovery` as the first implementation-phase step after design, and updated the canonical workflow, CLI stage sequence, and the `autoswe` project graph in `.design/design.db` to match.
 - Added canonical post-design workflow docs for `Implementation discovery` and `Implementation design` so the implementation phase now has explicit first steps after design completion.

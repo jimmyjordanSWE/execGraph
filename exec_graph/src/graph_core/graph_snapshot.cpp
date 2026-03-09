@@ -22,6 +22,7 @@ std::unordered_map<std::string, NodeId> build_node_ids(const graph::GraphDocumen
 
 GraphSnapshot::GraphSnapshot()
     : arena_(),
+      working_directory_(&arena_),
       nodes_(&arena_),
       argv_storage_(&arena_),
       incoming_storage_(&arena_),
@@ -30,6 +31,10 @@ GraphSnapshot::GraphSnapshot()
 
 std::size_t GraphSnapshot::node_count() const {
     return nodes_.size();
+}
+
+const std::pmr::string& GraphSnapshot::working_directory() const {
+    return working_directory_;
 }
 
 const std::pmr::vector<NodeRecord>& GraphSnapshot::nodes() const {
@@ -129,8 +134,13 @@ void GraphSnapshot::set_execution_order(const std::vector<NodeId>& order) {
     execution_order_.insert(execution_order_.end(), order.begin(), order.end());
 }
 
+void GraphSnapshot::set_working_directory(const std::string& working_directory) {
+    working_directory_ = std::pmr::string(working_directory.c_str(), &arena_);
+}
+
 std::unique_ptr<GraphSnapshot> build_snapshot(const graph::GraphDocument& document) {
     auto snapshot = std::make_unique<GraphSnapshot>();
+    snapshot->set_working_directory(document.working_directory);
     snapshot->nodes_.reserve(document.nodes.size());
 
     std::size_t total_argv = 0;
@@ -179,20 +189,58 @@ std::unordered_map<std::string, std::string> execute_snapshot_outputs(
 ) {
     std::unordered_map<std::string, std::string> outputs;
     outputs.reserve(snapshot.node_count());
+    const auto sink_count = static_cast<int>(snapshot.sink_nodes().size());
+    int completed_node_count = 0;
+
+    if (event_sink) {
+        event_sink(runtime::build_graph_started_event(static_cast<int>(snapshot.node_count()), sink_count));
+    }
 
     for (const auto node_id : snapshot.execution_order()) {
+        const auto node_name = std::string(snapshot.node(node_id).name);
         std::string stdin_data;
         const auto incoming = snapshot.incoming(node_id);
         if (!incoming.empty()) {
             stdin_data = outputs.at(snapshot.node(incoming.front()).name.c_str());
         }
 
-        const runtime::ProcessSpec spec{snapshot.argv_copy(node_id)};
-        const auto result = runtime::run_process(std::string(snapshot.node(node_id).name), spec, stdin_data, event_sink);
         if (event_sink) {
-            event_sink(runtime::build_process_event(std::string(snapshot.node(node_id).name), result));
+            event_sink(
+                runtime::build_graph_node_started_event(
+                    node_name,
+                    static_cast<int>(snapshot.node_count()),
+                    sink_count,
+                    completed_node_count
+                )
+            );
+        }
+
+        const runtime::ProcessSpec spec{snapshot.argv_copy(node_id), std::string(snapshot.working_directory())};
+        const auto result = runtime::run_process(node_name, spec, stdin_data, event_sink);
+        if (event_sink) {
+            event_sink(runtime::build_process_event(node_name, result));
         }
         if (result.exit_code != 0) {
+            if (event_sink) {
+                event_sink(
+                    runtime::build_graph_node_failed_event(
+                        node_name,
+                        static_cast<int>(snapshot.node_count()),
+                        sink_count,
+                        completed_node_count,
+                        result
+                    )
+                );
+                event_sink(
+                    runtime::build_graph_failed_event(
+                        static_cast<int>(snapshot.node_count()),
+                        sink_count,
+                        completed_node_count,
+                        node_name,
+                        result
+                    )
+                );
+            }
             throw std::runtime_error(
                 runtime::format_process_failure(
                     "node " + std::string(snapshot.node(node_id).name),
@@ -201,7 +249,24 @@ std::unordered_map<std::string, std::string> execute_snapshot_outputs(
                 )
             );
         }
-        outputs.emplace(std::string(snapshot.node(node_id).name), result.stdout_data);
+        outputs.emplace(node_name, result.stdout_data);
+        ++completed_node_count;
+
+        if (event_sink) {
+            event_sink(
+                runtime::build_graph_node_completed_event(
+                    node_name,
+                    static_cast<int>(snapshot.node_count()),
+                    sink_count,
+                    completed_node_count,
+                    result
+                )
+            );
+        }
+    }
+
+    if (event_sink) {
+        event_sink(runtime::build_graph_completed_event(static_cast<int>(snapshot.node_count()), sink_count));
     }
 
     return outputs;

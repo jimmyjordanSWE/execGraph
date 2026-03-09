@@ -4,11 +4,17 @@
 
 namespace exec_graph::infra::sqlite {
 
+struct MigrationSummary {
+    int discovered_count;
+    int applied_count;
+    int skipped_count;
+};
+
 class MigrationRunner {
 public:
     MigrationRunner(std::string database_path, std::string migrations_dir);
 
-    void apply_all() const;
+    MigrationSummary apply_all() const;
 
 private:
     std::string database_path_;

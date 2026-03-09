@@ -35,13 +35,15 @@ GraphRepositorySqlite::GraphRepositorySqlite(const std::string& database_path)
 
 std::int64_t GraphRepositorySqlite::save_graph(const std::string& graph_id,
                                                const std::string& graph_source,
+                                               const std::string& working_directory,
                                                const std::optional<std::int64_t> expected_revision) {
-    const auto document = graph::load_graph_document_from_string(graph_source, "stored graph " + graph_id);
+    auto document = graph::load_graph_document_from_string(graph_source, "stored graph " + graph_id);
+    document.working_directory = working_directory;
     (void)build_snapshot(document);
 
     infra::sqlite::Connection connection(database_path_);
-    connection.begin_immediate();
     try {
+        infra::sqlite::Transaction transaction(connection);
         std::int64_t current_revision = 0;
         const auto existing_source = load_existing_graph_source(connection, graph_id, &current_revision);
 
@@ -59,31 +61,32 @@ std::int64_t GraphRepositorySqlite::save_graph(const std::string& graph_id,
             next_revision = current_revision + 1;
             auto update = connection.prepare(
                 "UPDATE graph_snapshots "
-                "SET revision = ?1, source_text = ?2, updated_at = CURRENT_TIMESTAMP "
-                "WHERE graph_id = ?3"
+                "SET revision = ?1, source_text = ?2, working_directory = ?3, updated_at = CURRENT_TIMESTAMP "
+                "WHERE graph_id = ?4"
             );
             update.bind_int64(1, next_revision);
             update.bind_text(2, graph_source);
-            update.bind_text(3, graph_id);
+            update.bind_text(3, working_directory);
+            update.bind_text(4, graph_id);
             update.step_done();
         } else {
             if (expected_revision.has_value()) {
                 throw std::runtime_error("revision_conflict: graph " + graph_id + " does not exist yet");
             }
             auto insert = connection.prepare(
-                "INSERT INTO graph_snapshots (graph_id, revision, source_text) "
-                "VALUES (?1, ?2, ?3)"
+                "INSERT INTO graph_snapshots (graph_id, revision, source_text, working_directory) "
+                "VALUES (?1, ?2, ?3, ?4)"
             );
             insert.bind_text(1, graph_id);
             insert.bind_int64(2, next_revision);
             insert.bind_text(3, graph_source);
+            insert.bind_text(4, working_directory);
             insert.step_done();
         }
 
-        connection.commit();
+        transaction.commit();
         return next_revision;
     } catch (...) {
-        connection.rollback();
         throw;
     }
 }
@@ -91,7 +94,7 @@ std::int64_t GraphRepositorySqlite::save_graph(const std::string& graph_id,
 StoredGraph GraphRepositorySqlite::load_graph(const std::string& graph_id) {
     infra::sqlite::Connection connection(database_path_);
     auto select = connection.prepare(
-        "SELECT revision, source_text "
+        "SELECT revision, source_text, working_directory "
         "FROM graph_snapshots "
         "WHERE graph_id = ?1"
     );
@@ -107,8 +110,8 @@ StoredGraph GraphRepositorySqlite::load_graph(const std::string& graph_id) {
         nullptr,
     };
 
-    const auto document =
-        graph::load_graph_document_from_string(stored.source_text, "stored graph " + graph_id);
+    auto document = graph::load_graph_document_from_string(stored.source_text, "stored graph " + graph_id);
+    document.working_directory = select.column_text(2);
     stored.snapshot = build_snapshot(document);
     return stored;
 }

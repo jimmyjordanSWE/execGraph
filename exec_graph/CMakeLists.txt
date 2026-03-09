@@ -214,10 +214,36 @@ add_test(
 )
 
 add_test(
+  NAME smoke.migration_idempotent
+  COMMAND
+    ${BASH_PROGRAM}
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke/run_migration_idempotent.sh
+    $<TARGET_FILE:eg_migrate>
+)
+
+add_test(
   NAME smoke.graph_events
   COMMAND
     ${BASH_PROGRAM}
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke/run_graph_events.sh
     $<TARGET_FILE:eg_demo_pipeline>
     ${CMAKE_CURRENT_SOURCE_DIR}/examples/toy_process.graph
+)
+
+add_test(
+  NAME smoke.workflow_events
+  COMMAND
+    ${BASH_PROGRAM}
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke/run_workflow_events.sh
+    $<TARGET_FILE:eg_demo_pipeline>
+    ${CMAKE_CURRENT_SOURCE_DIR}/examples/toy_linux.workflow
+    ${CMAKE_CURRENT_SOURCE_DIR}/examples/failing_workflow.workflow
+)
+
+add_test(
+  NAME smoke.relative_example_paths
+  COMMAND
+    ${BASH_PROGRAM}
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke/run_relative_example_paths.sh
+    $<TARGET_FILE:eg_demo_pipeline>
 )

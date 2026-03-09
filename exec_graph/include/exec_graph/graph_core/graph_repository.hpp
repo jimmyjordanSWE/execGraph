@@ -22,6 +22,7 @@ public:
 
     std::int64_t save_graph(const std::string& graph_id,
                             const std::string& graph_source,
+                            const std::string& working_directory,
                             std::optional<std::int64_t> expected_revision);
     StoredGraph load_graph(const std::string& graph_id);
 

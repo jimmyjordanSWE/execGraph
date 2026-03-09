@@ -41,6 +41,7 @@ Implementation execution consumes:
 
 - approved design state
 - approved implementation-discovery outputs
+- approved mandatory implementation-context manifest from implementation discovery
 - approved implementation-design blueprint
 - repo-local implementation packets and packet acceptance notes
 - verification obligations
@@ -61,6 +62,7 @@ Mandatory reasoning:
 - what files, modules, and test targets it is allowed to touch
 - what boundaries it must not cross
 - what design- or discovery-owned assumptions remain fixed
+- what mandatory implementation context applies to this packet and must be treated as non-optional
 - what would force escalation if changed
 
 Minimal artifact:
@@ -70,7 +72,7 @@ Minimal artifact:
 
 Gate:
 
-- the team knows what it is implementing now and what remains out of scope
+- the team knows what it is implementing now, what mandatory implementation context governs the packet, and what remains out of scope
 
 ## 2. Define Proof Obligations Before Coding
 

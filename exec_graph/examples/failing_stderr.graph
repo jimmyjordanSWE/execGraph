@@ -1,1 +1,1 @@
-node fail cat exec_graph/examples/definitely_missing_input.txt
+node fail cat definitely_missing_input.txt

@@ -45,9 +45,28 @@ public:
     void begin_immediate();
     void commit();
     void rollback();
+    bool in_transaction() const;
 
 private:
     sqlite3* handle_;
+    bool in_transaction_;
+};
+
+class Transaction {
+public:
+    explicit Transaction(Connection& connection);
+
+    Transaction(const Transaction&) = delete;
+    Transaction& operator=(const Transaction&) = delete;
+    Transaction(Transaction&&) = delete;
+    Transaction& operator=(Transaction&&) = delete;
+    ~Transaction();
+
+    void commit();
+
+private:
+    Connection& connection_;
+    bool committed_;
 };
 
 }  // namespace exec_graph::infra::sqlite

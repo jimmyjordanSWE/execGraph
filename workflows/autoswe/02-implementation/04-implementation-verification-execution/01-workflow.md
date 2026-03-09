@@ -19,6 +19,7 @@ This is the phase that runs the broader verification matrix against implemented 
 Implementation verification execution consumes:
 
 - approved verification design
+- approved mandatory implementation-context manifest from implementation discovery
 - implemented packets and packet acceptance results
 - current build/test/benchmark/sanitizer command set
 - current fixtures, smoke paths, and benchmark baselines
@@ -29,6 +30,7 @@ Implementation verification execution consumes:
 Mandatory reasoning:
 
 - what implementation packets and subsystems are in scope
+- what mandatory implementation context governs verification tooling, selected dependencies, and forbidden substitutions for this run
 - what verification obligations must be exercised now
 - what is intentionally out of scope for this run
 
@@ -38,7 +40,7 @@ Minimal artifact:
 
 Gate:
 
-- the team knows what is being verified and why
+- the team knows what is being verified, what mandatory implementation context must be honored during verification, and why
 
 ## 2. Assemble The Verification Matrix
 

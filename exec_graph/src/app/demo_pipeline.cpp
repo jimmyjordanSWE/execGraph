@@ -6,12 +6,30 @@
 
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
 #include <string>
 namespace {
+
+std::string default_migrations_dir() {
+    namespace fs = std::filesystem;
+
+    const fs::path repo_relative = "exec_graph/migrations";
+    if (fs::exists(repo_relative)) {
+        return repo_relative.string();
+    }
+
+    const fs::path product_relative = "migrations";
+    if (fs::exists(product_relative)) {
+        return product_relative.string();
+    }
+
+    return repo_relative.string();
+}
+
 void print_usage() {
     std::cout << "usage: eg_demo_pipeline "
                  "(--workflow <path> | --graph <path> | --stored-graph <id> --db <path>) "
@@ -52,6 +70,7 @@ int main(int argc, char** argv) {
         std::string stored_graph_id;
         std::string save_graph_id;
         std::string database_path;
+        const auto migrations_dir = default_migrations_dir();
         bool save_graph = false;
         bool emit_events_jsonl = false;
         std::optional<std::int64_t> expected_revision;
@@ -148,10 +167,11 @@ int main(int argc, char** argv) {
             }
         } else if (!graph_path.empty()) {
             if (save_graph) {
-                exec_graph::infra::sqlite::MigrationRunner(database_path, "exec_graph/migrations").apply_all();
+                exec_graph::infra::sqlite::MigrationRunner(database_path, migrations_dir).apply_all();
                 exec_graph::graph_core::GraphRepositorySqlite repository(database_path);
+                const auto graph_working_directory = std::filesystem::absolute(std::filesystem::path(graph_path)).parent_path().string();
                 const auto next_revision =
-                    repository.save_graph(save_graph_id, read_file(graph_path), expected_revision);
+                    repository.save_graph(save_graph_id, read_file(graph_path), graph_working_directory, expected_revision);
                 std::cout << "stored graph " << save_graph_id << " at revision " << next_revision << "\n";
                 return 0;
             }
@@ -167,7 +187,7 @@ int main(int argc, char** argv) {
                 last_output = render_graph_outputs(*snapshot, outputs);
             }
         } else {
-            exec_graph::infra::sqlite::MigrationRunner(database_path, "exec_graph/migrations").apply_all();
+            exec_graph::infra::sqlite::MigrationRunner(database_path, migrations_dir).apply_all();
             exec_graph::graph_core::GraphRepositorySqlite repository(database_path);
             const auto stored = repository.load_graph(stored_graph_id);
             for (int i = 0; i < iterations; ++i) {

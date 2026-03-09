@@ -23,6 +23,11 @@ ARTIFACT_STATUSES = {"draft", "approved", "superseded"}
 QUESTION_STATUSES = {"open", "resolved"}
 DECISION_STATUSES = {"proposed", "accepted", "rejected", "superseded"}
 PACKAGE_STATUSES = {"draft", "approved", "superseded"}
+DOWNSTREAM_IMPLEMENTATION_STAGES = {
+    "implementation_design",
+    "implementation_execution",
+    "implementation_verification_execution",
+}
 SOFTWARE_DESIGN_STAGE_SEQUENCE = [
     ("problem_definition", "Problem definition"),
     ("requirements_definition", "Requirements definition"),
@@ -588,6 +593,30 @@ def row_to_package(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def resolve_mandatory_implementation_context(db: Database, project_id: str) -> dict[str, Any] | None:
+    rows = db.conn.execute(
+        """
+        SELECT *
+        FROM artifacts
+        WHERE project_id = ? AND type = 'implementation_discovery' AND status = 'approved'
+        ORDER BY updated_at DESC, version DESC, created_at DESC
+        """,
+        (project_id,),
+    ).fetchall()
+    for row in rows:
+        artifact = row_to_artifact(row)
+        context = artifact["content"].get("mandatory_implementation_context")
+        if not isinstance(context, dict):
+            continue
+        return {
+            "artifact_id": artifact["id"],
+            "node_id": artifact["node_id"],
+            "selected_profile": artifact["content"].get("selected_profile", {}),
+            "mandatory_implementation_context": context,
+        }
+    return None
+
+
 def output(payload: dict[str, Any], index_result: dict[str, Any] | None = None) -> None:
     body = {"ok": True, **payload}
     if index_result is not None:
@@ -946,6 +975,35 @@ def artifact_template(db: Database, args: argparse.Namespace) -> None:
             },
             "main_alternative": "",
             "major_tradeoffs": [],
+            "mandatory_implementation_context": {
+                "summary": [],
+                "global": {
+                    "required_dependencies": [],
+                    "required_tools": [],
+                    "forbidden_substitutions": [],
+                    "escalate_if": [],
+                },
+                "per_step": {
+                    "implementation_design": {
+                        "required_dependencies": [],
+                        "required_tools": [],
+                        "forbidden_substitutions": [],
+                        "escalate_if": [],
+                    },
+                    "implementation_execution": {
+                        "required_dependencies": [],
+                        "required_tools": [],
+                        "forbidden_substitutions": [],
+                        "escalate_if": [],
+                    },
+                    "implementation_verification_execution": {
+                        "required_dependencies": [],
+                        "required_tools": [],
+                        "forbidden_substitutions": [],
+                        "escalate_if": [],
+                    },
+                },
+            },
             "spikes": [],
             "residual_risks": [],
             "escalate_if": [],
@@ -1245,6 +1303,7 @@ def package_list(db: Database, args: argparse.Namespace) -> None:
 
 
 def next_work_payload(db: Database, project: sqlite3.Row) -> dict[str, Any]:
+    mandatory_context = resolve_mandatory_implementation_context(db, project["id"])
     rows = db.conn.execute(
         """
         SELECT *
@@ -1280,16 +1339,41 @@ def next_work_payload(db: Database, project: sqlite3.Row) -> dict[str, Any]:
             if dep["status"] != "done":
                 blocked_by_dependencies.append({"node_id": dep_id, "status": dep["status"]})
         blocking_questions = [q for q in open_questions.get(node["id"], []) if q["blocking"]]
+        blocked_by_mandatory_context = []
+        if node["stage"] in DOWNSTREAM_IMPLEMENTATION_STAGES:
+            if mandatory_context is None:
+                blocked_by_mandatory_context.append(
+                    {
+                        "reason": "approved implementation_discovery artifact with mandatory_implementation_context is required",
+                    }
+                )
+            else:
+                per_step = mandatory_context["mandatory_implementation_context"].get("per_step", {})
+                if not isinstance(per_step, dict) or node["stage"] not in per_step:
+                    blocked_by_mandatory_context.append(
+                        {
+                            "reason": f"mandatory_implementation_context is missing per-step guidance for {node['stage']}",
+                            "artifact_id": mandatory_context["artifact_id"],
+                        }
+                    )
         candidates.append(
             {
                 "node": node,
                 "blocked_by_dependencies": blocked_by_dependencies,
                 "blocking_questions": blocking_questions,
-                "ready": not blocked_by_dependencies and not blocking_questions and node["status"] != "blocked",
+                "blocked_by_mandatory_context": blocked_by_mandatory_context,
+                "ready": not blocked_by_dependencies
+                and not blocking_questions
+                and not blocked_by_mandatory_context
+                and node["status"] != "blocked",
             }
         )
     ready = [candidate for candidate in candidates if candidate["ready"]]
-    return {"next_work": ready[0] if ready else None, "candidates": candidates}
+    return {
+        "next_work": ready[0] if ready else None,
+        "candidates": candidates,
+        "mandatory_implementation_context": mandatory_context,
+    }
 
 
 def missing_stage_payload(tree_rows: list[sqlite3.Row]) -> list[dict[str, str]]:
@@ -1544,6 +1628,7 @@ def resume(db: Database, args: argparse.Namespace) -> None:
             "status": status,
             "next_work": next_payload["next_work"],
             "candidates": next_payload["candidates"],
+            "mandatory_implementation_context": next_payload["mandatory_implementation_context"],
             "missing_stages": missing_stages,
             "tree": tree,
             "recent_decisions": recent_decisions,

@@ -419,7 +419,32 @@ Gate:
 
 - the implementation ecosystem is explicit enough to support detailed implementation design
 
-## 17. Record Tradeoffs And Escalations
+## 17. Encode Mandatory Implementation Context
+
+Mandatory reasoning:
+
+- which implementation-discovery decisions must be visible on every downstream implementation step
+- which decisions apply globally versus only to specific implementation steps
+- which decisions are mandatory dependencies, mandatory tools, forbidden local substitutions, or mandatory escalation triggers
+- whether each downstream step can proceed safely without rereading the full discovery record
+
+The mandatory implementation context should cover:
+
+- cross-cutting selected dependencies and tools that downstream agents must not silently re-decide
+- forbidden alternatives when local substitution would violate approved design or delivery constraints
+- downstream-step applicability for at least `implementation_design`, `implementation_execution`, and `implementation_verification_execution`
+- concise rationale for why each item is mandatory
+- escalation conditions for any future request to override the selected path
+
+Minimal artifact:
+
+- mandatory implementation-context manifest
+
+Gate:
+
+- downstream implementation steps can resume with a compact, explicit, non-optional set of implementation constraints instead of rediscovering the ecosystem locally
+
+## 18. Record Tradeoffs And Escalations
 
 Mandatory reasoning:
 
@@ -463,6 +488,7 @@ Implementation discovery must produce:
 - decision scoring summary
 - selected option set
 - implementation profile
+- mandatory implementation-context manifest
 - technology selection record
 - residual-risk register
 - escalation list
@@ -474,6 +500,7 @@ Implementation discovery is complete only when:
 - the target implementation environment is explicit
 - the technology choices are justified against the design constraints
 - the implementation team can begin detailed implementation design without guessing the ecosystem
+- the implementation team has a mandatory implementation-context artifact that downstream steps must consume rather than rediscovering key dependencies and tool choices locally
 - major buy-vs-build decisions are recorded
 - licensing, cost, compatibility, and release implications are visible
 - the evidence threshold for risky decisions is explicit

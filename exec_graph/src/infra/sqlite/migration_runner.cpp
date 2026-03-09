@@ -27,7 +27,7 @@ std::string read_file(const std::filesystem::path& path) {
 MigrationRunner::MigrationRunner(std::string database_path, std::string migrations_dir)
     : database_path_(std::move(database_path)), migrations_dir_(std::move(migrations_dir)) {}
 
-void MigrationRunner::apply_all() const {
+MigrationSummary MigrationRunner::apply_all() const {
     namespace fs = std::filesystem;
 
     if (!fs::exists(migrations_dir_)) {
@@ -50,6 +50,12 @@ void MigrationRunner::apply_all() const {
     }
     std::sort(migration_files.begin(), migration_files.end());
 
+    MigrationSummary summary{
+        static_cast<int>(migration_files.size()),
+        0,
+        0,
+    };
+
     for (const auto& path : migration_files) {
         const auto version = path.filename().string();
 
@@ -58,23 +64,26 @@ void MigrationRunner::apply_all() const {
         );
         select.bind_text(1, version);
         if (select.step_row()) {
+            ++summary.skipped_count;
             continue;
         }
 
-        connection.begin_immediate();
         try {
+            Transaction transaction(connection);
             connection.execute(read_file(path));
             auto insert = connection.prepare(
                 "INSERT INTO schema_migrations (version) VALUES (?1)"
             );
             insert.bind_text(1, version);
             insert.step_done();
-            connection.commit();
+            transaction.commit();
+            ++summary.applied_count;
         } catch (...) {
-            connection.rollback();
             throw;
         }
     }
+
+    return summary;
 }
 
 }  // namespace exec_graph::infra::sqlite

@@ -122,6 +122,7 @@ The next phase is implementation, whose first step is `Implementation discovery`
 
 Implementation discovery chooses languages, frameworks, libraries, implementation-local tools, buy-vs-build posture, and the practical delivery ecosystem around the approved design.
 Design should constrain those choices when necessary, but should not guess them by default.
+Implementation discovery should also emit a mandatory implementation-context artifact so downstream implementation steps inherit selected dependencies, required tools, forbidden substitutions, and escalation triggers without rediscovering them locally.
 
 The next step after that is `Implementation design`.
 
@@ -130,6 +131,7 @@ Implementation design maps the approved architecture into the actual repository,
 Implementation discovery is therefore the point where a professional team would do its major ecosystem and tooling tradeoff analysis.
 It should include explicit evaluation of design fit, delivery fit, operational risk, security risk, verification fit, economics and licensing, compatibility, release engineering, ownership, buy-vs-build decisions, and evidence thresholds.
 By default, that delivery-fit analysis assumes an LLM-driven engineering team unless the project explicitly says otherwise.
+Implementation design, implementation execution, and implementation verification should then consume that mandatory implementation context rather than reinterpreting discovery decisions from scratch.
 
 These stages are expanded in the canonical design workflow folder [workflows/autoswe/01-design/README.md](../../../workflows/autoswe/01-design/README.md).
 

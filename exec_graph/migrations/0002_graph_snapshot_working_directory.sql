@@ -1,0 +1,1 @@
+ALTER TABLE graph_snapshots ADD COLUMN working_directory TEXT NOT NULL DEFAULT '';

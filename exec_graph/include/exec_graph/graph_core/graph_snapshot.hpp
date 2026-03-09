@@ -41,6 +41,7 @@ public:
     ~GraphSnapshot() = default;
 
     std::size_t node_count() const;
+    const std::pmr::string& working_directory() const;
     const std::pmr::vector<NodeRecord>& nodes() const;
     const std::pmr::vector<NodeId>& execution_order() const;
 
@@ -52,6 +53,7 @@ public:
 
 private:
     std::pmr::monotonic_buffer_resource arena_;
+    std::pmr::string working_directory_;
     std::pmr::vector<NodeRecord> nodes_;
     std::pmr::vector<std::pmr::string> argv_storage_;
     std::pmr::vector<NodeId> incoming_storage_;
@@ -64,6 +66,7 @@ private:
                        const std::vector<NodeId>& incoming,
                        const std::vector<NodeId>& outgoing);
     void set_execution_order(const std::vector<NodeId>& order);
+    void set_working_directory(const std::string& working_directory);
 
     friend std::unique_ptr<GraphSnapshot> build_snapshot(const graph::GraphDocument& document);
 };
