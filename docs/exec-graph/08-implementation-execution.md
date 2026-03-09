@@ -150,6 +150,12 @@ The current pass replaced repository-local schema setup with a real migration pa
 - a dedicated `eg_migrate` executable
 - stored-graph save/load flows now apply migrations before touching repository code
 
+The latest pass hardened the verification surface around that implementation:
+
+- `exec_graph/CMakePresets.json` now defines `debug`, `asan-ubsan`, and `tsan`
+- `exec_graph/tests/verification/run_tsan_matrix.sh`
+- `exec_graph/tests/verification/run_valgrind_graph_smoke.sh`
+
 ## Verification Evidence
 
 Build:
@@ -214,12 +220,18 @@ Migration-path observation:
 - explicit migration execution now reports:
   - `applied migrations from exec_graph/migrations to /tmp/exec_graph_migrate.<id>.db`
 
+Hardening-path observations:
+
+- ThreadSanitizer build and smoke matrix now pass under Clang
+- valgrind reports `0 errors from 0 contexts` on the graph smoke path
+
 ## Residual Risks
 
 - the current toy runner is still a narrow demo, not yet a real graph engine
 - diagnostics are still text-first rather than structured runtime events
 - the workflow file format is intentionally simple and not yet a stable product contract
 - migration support exists, but still only as a minimal local runner with one schema file
+- runtime diagnostics are still text-first rather than structured events
 
 Mitigated in the second pass:
 
@@ -239,7 +251,7 @@ Mitigated in the latest pass:
 
 The next pass should keep implementation execution on the same node and target the next lowest-risk, highest-value items:
 
-1. add thread-oriented and valgrind-oriented verification where practical
-2. continue tightening SQLite infra and repository seams now that migrations are explicit
+1. continue tightening SQLite infra and repository seams now that migrations are explicit
+2. move runtime diagnostics from freeform text toward structured execution events
 3. continue separating graph parsing from stable graph-core contracts
-4. move runtime diagnostics from freeform text toward structured execution events
+4. widen runtime examples beyond the current small smoke set

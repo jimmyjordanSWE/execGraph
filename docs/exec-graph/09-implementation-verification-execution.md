@@ -20,12 +20,12 @@ In scope:
 - the real graph example and invalid-graph rejection path
 - failing-graph stderr capture path
 - normal-build and ASan/UBSan verification loops
+- ThreadSanitizer verification loop
+- valgrind graph smoke verification
 - initial benchmark evidence
 
 Out of scope:
 
-- valgrind
-- thread-sanitizer
 - broader subsystem contract fixtures
 - long-running service semantics
 
@@ -46,6 +46,8 @@ Safety:
 - ASan/UBSan configure
 - ASan/UBSan build
 - ASan/UBSan smoke test run
+- TSan configure/build/test run
+- valgrind graph smoke run
 
 Performance:
 
@@ -94,6 +96,10 @@ Safety results:
 - `cmake -S exec_graph -B build/exec_graph_asan -G Ninja -DEG_ENABLE_ASAN=ON -DEG_ENABLE_UBSAN=ON` passed
 - `cmake --build build/exec_graph_asan` passed
 - `ctest --test-dir build/exec_graph_asan --output-on-failure` passed with 6/6 tests
+- `cmake --preset tsan` passed
+- `cmake --build build/exec_graph_tsan` passed
+- `ctest --test-dir build/exec_graph_tsan --output-on-failure` passed with 6/6 tests
+- `valgrind --error-exitcode=99 --leak-check=full --track-origins=yes build/exec_graph/eg_demo_pipeline --graph exec_graph/examples/toy_process.graph` passed with `0 errors from 0 contexts`
 - no sanitizer failures were observed in this pass
 
 Performance results:
@@ -114,10 +120,9 @@ No blocking failures were found in this verification pass.
 Residual concerns:
 
 - benchmark evidence is still narrow and noisy
-- sanitizer coverage does not yet include thread-safety checks
+- thread-oriented and valgrind-oriented verification now exist, but they are still narrow
 - graph execution is still limited to single-input DAG nodes and a simple text graph format
 - diagnostics are still emitted as text, not yet normalized runtime event records
-- repository-local schema setup exists, but a proper migration runner does not
 - migration support now exists through `eg_migrate`, but the migration set is still minimal
 
 ## Verification Verdict
@@ -132,7 +137,7 @@ Current verdict:
 
 Return to `Implementation execution` and continue with:
 
-1. broader memory and concurrency verification
-2. continue tightening SQLite infra now that migrations are explicit
+1. continue tightening SQLite infra now that migrations are explicit
+2. move runtime diagnostics toward structured events instead of text-only errors
 3. additional runtime examples beyond the current two toy workflows
-4. structured runtime diagnostics and event normalization
+4. widen hardening coverage beyond the current smoke-oriented checks
