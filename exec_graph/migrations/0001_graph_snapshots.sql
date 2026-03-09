@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS graph_snapshots (
+  graph_id TEXT PRIMARY KEY,
+  revision INTEGER NOT NULL,
+  source_text TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

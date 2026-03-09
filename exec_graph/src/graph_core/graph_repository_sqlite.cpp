@@ -33,18 +33,6 @@ std::string load_existing_graph_source(infra::sqlite::Connection& connection,
 GraphRepositorySqlite::GraphRepositorySqlite(const std::string& database_path)
     : database_path_(database_path) {}
 
-void GraphRepositorySqlite::initialize_schema() {
-    infra::sqlite::Connection connection(database_path_);
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS graph_snapshots ("
-        "  graph_id TEXT PRIMARY KEY,"
-        "  revision INTEGER NOT NULL,"
-        "  source_text TEXT NOT NULL,"
-        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"
-        ")"
-    );
-}
-
 std::int64_t GraphRepositorySqlite::save_graph(const std::string& graph_id,
                                                const std::string& graph_source,
                                                const std::optional<std::int64_t> expected_revision) {

@@ -91,6 +91,7 @@ target_compile_options(eg_graph_core PRIVATE
 
 add_library(eg_infra_sqlite
   src/infra/sqlite/connection.cpp
+  src/infra/sqlite/migration_runner.cpp
 )
 
 target_include_directories(eg_infra_sqlite PUBLIC
@@ -127,6 +128,23 @@ target_compile_options(eg_demo_pipeline PRIVATE
 )
 
 eg_apply_sanitizers(eg_demo_pipeline)
+
+add_executable(eg_migrate
+  src/app/migrate.cpp
+)
+
+target_link_libraries(eg_migrate PRIVATE eg_infra_sqlite)
+target_include_directories(eg_migrate PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_compile_options(eg_migrate PRIVATE
+  -Wall
+  -Wextra
+  -Wpedantic
+)
+
+eg_apply_sanitizers(eg_migrate)
 
 enable_testing()
 
@@ -191,5 +209,6 @@ add_test(
     ${BASH_PROGRAM}
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke/run_graph_repository_roundtrip.sh
     $<TARGET_FILE:eg_demo_pipeline>
+    $<TARGET_FILE:eg_migrate>
     ${CMAKE_CURRENT_SOURCE_DIR}/examples/toy_process.graph
 )

@@ -143,6 +143,13 @@ The newest pass also introduced the first persisted graph seam:
 - optimistic concurrency checks through `expected_revision`
 - execution of stored graphs through the same `graph_core` snapshot path
 
+The current pass replaced repository-local schema setup with a real migration path:
+
+- append-only SQL migration files under `exec_graph/migrations/`
+- `exec_graph::infra::sqlite::MigrationRunner`
+- a dedicated `eg_migrate` executable
+- stored-graph save/load flows now apply migrations before touching repository code
+
 ## Verification Evidence
 
 Build:
@@ -202,12 +209,17 @@ Persistence-path observations:
 - conflicting updates now fail with:
   - `revision_conflict: graph manual_graph is at revision 1, expected 7`
 
+Migration-path observation:
+
+- explicit migration execution now reports:
+  - `applied migrations from exec_graph/migrations to /tmp/exec_graph_migrate.<id>.db`
+
 ## Residual Risks
 
 - the current toy runner is still a narrow demo, not yet a real graph engine
 - diagnostics are still text-first rather than structured runtime events
 - the workflow file format is intentionally simple and not yet a stable product contract
-- no migration runner exists yet beyond repository-local schema initialization
+- migration support exists, but still only as a minimal local runner with one schema file
 
 Mitigated in the second pass:
 
@@ -221,12 +233,13 @@ Mitigated in the latest pass:
 - process failures now retain stderr output in surfaced diagnostics
 - graph execution now runs through an explicit `graph_core` snapshot instead of directly over parser-owned structures
 - graphs can now be persisted and reloaded with revision guards instead of only living as raw files
+- schema setup now runs through append-only SQL migrations and a dedicated migration executable
 
 ## Next Execution Decision
 
 The next pass should keep implementation execution on the same node and target the next lowest-risk, highest-value items:
 
-1. add a proper migration runner and widen SQLite infra beyond repository-local schema setup
-2. add valgrind and thread-safety-oriented verification where practical
+1. add thread-oriented and valgrind-oriented verification where practical
+2. continue tightening SQLite infra and repository seams now that migrations are explicit
 3. continue separating graph parsing from stable graph-core contracts
 4. move runtime diagnostics from freeform text toward structured execution events

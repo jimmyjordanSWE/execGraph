@@ -1,6 +1,7 @@
 #include "exec_graph/graph/graph_document.hpp"
 #include "exec_graph/graph_core/graph_snapshot.hpp"
 #include "exec_graph/graph_core/graph_repository.hpp"
+#include "exec_graph/infra/sqlite/migration_runner.hpp"
 #include "exec_graph/runtime/process_runtime.hpp"
 
 #include <chrono>
@@ -129,8 +130,8 @@ int main(int argc, char** argv) {
             }
         } else if (!graph_path.empty()) {
             if (save_graph) {
+                exec_graph::infra::sqlite::MigrationRunner(database_path, "exec_graph/migrations").apply_all();
                 exec_graph::graph_core::GraphRepositorySqlite repository(database_path);
-                repository.initialize_schema();
                 const auto next_revision =
                     repository.save_graph(save_graph_id, read_file(graph_path), expected_revision);
                 std::cout << "stored graph " << save_graph_id << " at revision " << next_revision << "\n";
@@ -143,8 +144,8 @@ int main(int argc, char** argv) {
                 last_output = render_graph_outputs(*snapshot, outputs);
             }
         } else {
+            exec_graph::infra::sqlite::MigrationRunner(database_path, "exec_graph/migrations").apply_all();
             exec_graph::graph_core::GraphRepositorySqlite repository(database_path);
-            repository.initialize_schema();
             const auto stored = repository.load_graph(stored_graph_id);
             for (int i = 0; i < iterations; ++i) {
                 const auto outputs = exec_graph::graph_core::execute_snapshot_outputs(*stored.snapshot);

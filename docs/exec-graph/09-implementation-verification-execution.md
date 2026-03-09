@@ -118,6 +118,7 @@ Residual concerns:
 - graph execution is still limited to single-input DAG nodes and a simple text graph format
 - diagnostics are still emitted as text, not yet normalized runtime event records
 - repository-local schema setup exists, but a proper migration runner does not
+- migration support now exists through `eg_migrate`, but the migration set is still minimal
 
 ## Verification Verdict
 
@@ -131,7 +132,7 @@ Current verdict:
 
 Return to `Implementation execution` and continue with:
 
-1. add a real migration runner and widen SQLite infra beyond repository-local schema setup
-2. broader memory and concurrency verification
+1. broader memory and concurrency verification
+2. continue tightening SQLite infra now that migrations are explicit
 3. additional runtime examples beyond the current two toy workflows
 4. structured runtime diagnostics and event normalization

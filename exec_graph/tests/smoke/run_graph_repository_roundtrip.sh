@@ -2,13 +2,18 @@
 set -euo pipefail
 
 bin_path="$1"
-graph_path="$2"
+eg_migrate_path="$2"
+graph_path="$3"
 
 repo_root="$(cd "$(dirname "$graph_path")/../.." && pwd)"
 cd "$repo_root"
 
 tmp_db="$(mktemp /tmp/exec_graph_roundtrip.XXXXXX.db)"
 trap 'rm -f "$tmp_db"' EXIT
+
+migrate_output="$("$eg_migrate_path" --db "$tmp_db")"
+printf '%s\n' "$migrate_output"
+grep -q "applied migrations" <<<"$migrate_output"
 
 save_output="$("$bin_path" --graph "$graph_path" --save-graph --graph-id demo_graph --db "$tmp_db")"
 printf '%s\n' "$save_output"

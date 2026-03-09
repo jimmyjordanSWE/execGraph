@@ -20,7 +20,6 @@ class GraphRepositorySqlite {
 public:
     explicit GraphRepositorySqlite(const std::string& database_path);
 
-    void initialize_schema();
     std::int64_t save_graph(const std::string& graph_id,
                             const std::string& graph_source,
                             std::optional<std::int64_t> expected_revision);
