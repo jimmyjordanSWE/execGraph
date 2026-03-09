@@ -158,6 +158,8 @@ The latest pass hardened the verification surface around that implementation:
 
 The current pass introduced the first structured runtime-event surface:
 
+- `process.started`
+- `process.output`
 - `process.completed`
 - `process.failed`
 - `process.killed`
@@ -237,8 +239,12 @@ Hardening-path observations:
 Structured-events observations:
 
 - successful graph execution now emits JSONL entries such as:
+  - `{"name":"process.started","subject":"count",...}`
+  - `{"name":"process.output","subject":"count",...,"stream_name":"stdout",...}`
   - `{"name":"process.completed","subject":"count",...,"terminal_cause":"exit_zero",...}`
 - failing graph execution now emits JSONL entries such as:
+  - `{"name":"process.started","subject":"fail",...}`
+  - `{"name":"process.output","subject":"fail",...,"stream_name":"stderr",...}`
   - `{"name":"process.failed","subject":"fail",...,"terminal_cause":"exit_non_zero",...}`
 
 ## Residual Risks
@@ -247,7 +253,7 @@ Structured-events observations:
 - diagnostics are still text-first rather than structured runtime events
 - the workflow file format is intentionally simple and not yet a stable product contract
 - migration support exists, but still only as a minimal local runner with one schema file
-- runtime diagnostics now have a minimal structured event path, but the event model is still narrow and process-centric
+- runtime diagnostics now have a structured event path, but the event model is still narrow and process-centric
 
 Mitigated in the second pass:
 
@@ -268,6 +274,6 @@ Mitigated in the latest pass:
 The next pass should keep implementation execution on the same node and target the next lowest-risk, highest-value items:
 
 1. continue tightening SQLite infra and repository seams now that migrations are explicit
-2. widen the structured runtime event model beyond terminal process outcomes
+2. widen the structured runtime event model beyond per-process lifecycle and captured-stream events
 3. continue separating graph parsing from stable graph-core contracts
 4. widen runtime examples beyond the current small smoke set

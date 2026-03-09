@@ -188,7 +188,7 @@ std::unordered_map<std::string, std::string> execute_snapshot_outputs(
         }
 
         const runtime::ProcessSpec spec{snapshot.argv_copy(node_id)};
-        const auto result = runtime::run_process(spec, stdin_data);
+        const auto result = runtime::run_process(std::string(snapshot.node(node_id).name), spec, stdin_data, event_sink);
         if (event_sink) {
             event_sink(runtime::build_process_event(std::string(snapshot.node(node_id).name), result));
         }

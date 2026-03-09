@@ -93,10 +93,14 @@ sink count:
       2 PEAR
 ```
 
-- structured runtime events now emit machine-readable entries on both success and failure:
+- structured runtime events now emit machine-readable lifecycle and output entries on both success and failure:
 
 ```text
+{"name":"process.started","subject":"count",...}
+{"name":"process.output","subject":"count",...,"stream_name":"stdout",...}
 {"name":"process.completed","subject":"count",...,"terminal_cause":"exit_zero",...}
+{"name":"process.started","subject":"fail",...}
+{"name":"process.output","subject":"fail",...,"stream_name":"stderr",...}
 {"name":"process.failed","subject":"fail",...,"terminal_cause":"exit_non_zero",...}
 ```
 
@@ -131,7 +135,7 @@ Residual concerns:
 - benchmark evidence is still narrow and noisy
 - thread-oriented and valgrind-oriented verification now exist, but they are still narrow
 - graph execution is still limited to single-input DAG nodes and a simple text graph format
-- structured runtime events now exist, but only for terminal process outcomes
+- structured runtime events now exist for per-process lifecycle and captured-stream events, but not yet for broader scheduler/runtime surfaces
 - migration support now exists through `eg_migrate`, but the migration set is still minimal
 
 ## Verification Verdict
@@ -147,6 +151,6 @@ Current verdict:
 Return to `Implementation execution` and continue with:
 
 1. continue tightening SQLite infra now that migrations are explicit
-2. widen structured runtime events beyond terminal process outcomes
+2. widen structured runtime events beyond per-process lifecycle and captured-stream outcomes
 3. additional runtime examples beyond the current two toy workflows
 4. widen hardening coverage beyond the current smoke-oriented checks

@@ -116,6 +116,14 @@ std::string trim_trailing_newlines(std::string text) {
     return text;
 }
 
+std::string truncate_excerpt(const std::string& text, const std::size_t limit = 160) {
+    auto trimmed = trim_trailing_newlines(text);
+    if (trimmed.size() <= limit) {
+        return trimmed;
+    }
+    return trimmed.substr(0, limit) + "...";
+}
+
 std::string json_escape(const std::string& value) {
     std::string escaped;
     escaped.reserve(value.size());
@@ -171,6 +179,13 @@ std::vector<ProcessSpec> load_workflow(const std::string& workflow_path) {
 }
 
 ProcessResult run_process(const ProcessSpec& spec, const std::string& stdin_data) {
+    return run_process("", spec, stdin_data, {});
+}
+
+ProcessResult run_process(const std::string& subject,
+                          const ProcessSpec& spec,
+                          const std::string& stdin_data,
+                          const std::function<void(const ProcessEvent&)>& event_sink) {
     if (spec.argv.empty()) {
         throw std::runtime_error("attempted to run an empty command");
     }
@@ -211,6 +226,10 @@ ProcessResult run_process(const ProcessSpec& spec, const std::string& stdin_data
         _exit(127);
     }
 
+    if (event_sink) {
+        event_sink(build_process_started_event(subject, static_cast<int>(pid)));
+    }
+
     close(stdin_pipe[0]);
     close(stdout_pipe[1]);
     close(stderr_pipe[1]);
@@ -221,6 +240,13 @@ ProcessResult run_process(const ProcessSpec& spec, const std::string& stdin_data
     close(stdin_pipe[1]);
 
     const auto [stdout_data, stderr_data] = read_stdout_and_stderr(stdout_pipe[0], stderr_pipe[0]);
+
+    if (event_sink && !stdout_data.empty()) {
+        event_sink(build_process_stream_event(subject, static_cast<int>(pid), "stdout", stdout_data));
+    }
+    if (event_sink && !stderr_data.empty()) {
+        event_sink(build_process_stream_event(subject, static_cast<int>(pid), "stderr", stderr_data));
+    }
 
     int status = 0;
     if (waitpid(pid, &status, 0) < 0) {
@@ -244,7 +270,7 @@ std::string run_workflow(const std::vector<ProcessSpec>& workflow,
                          const std::function<void(const ProcessEvent&)>& event_sink) {
     std::string current_output;
     for (const auto& process : workflow) {
-        const auto result = run_process(process, current_output);
+        const auto result = run_process("command", process, current_output, event_sink);
         if (event_sink) {
             event_sink(build_process_event("command", result));
         }
@@ -256,12 +282,48 @@ std::string run_workflow(const std::vector<ProcessSpec>& workflow,
     return current_output;
 }
 
+ProcessEvent build_process_started_event(const std::string& subject, const int pid) {
+    ProcessEvent event;
+    event.name = "process.started";
+    event.subject = subject;
+    event.pid = pid;
+    event.exit_code = 0;
+    event.signal_number = 0;
+    event.terminal_cause = "";
+    event.stream_name = "";
+    event.byte_count = 0;
+    event.stdout_excerpt = "";
+    event.stderr_excerpt = "";
+    return event;
+}
+
+ProcessEvent build_process_stream_event(const std::string& subject,
+                                        const int pid,
+                                        const std::string& stream_name,
+                                        const std::string& data) {
+    ProcessEvent event;
+    event.name = "process.output";
+    event.subject = subject;
+    event.pid = pid;
+    event.exit_code = 0;
+    event.signal_number = 0;
+    event.terminal_cause = "";
+    event.stream_name = stream_name;
+    event.byte_count = static_cast<int>(data.size());
+    event.stdout_excerpt = stream_name == "stdout" ? truncate_excerpt(data) : "";
+    event.stderr_excerpt = stream_name == "stderr" ? truncate_excerpt(data) : "";
+    return event;
+}
+
 ProcessEvent build_process_event(const std::string& subject, const ProcessResult& result) {
     ProcessEvent event;
     event.subject = subject;
     event.pid = result.pid;
     event.exit_code = result.exit_code;
     event.signal_number = result.signal_number;
+    event.stream_name = "";
+    event.byte_count = 0;
+    event.stdout_excerpt = truncate_excerpt(result.stdout_data);
     event.stderr_excerpt = trim_trailing_newlines(result.stderr_data);
 
     if (result.exited && result.exit_code == 0) {
@@ -311,6 +373,9 @@ std::string render_process_event_json(const ProcessEvent& event) {
         << "\"exit_code\":" << event.exit_code << ','
         << "\"signal_number\":" << event.signal_number << ','
         << "\"terminal_cause\":\"" << json_escape(event.terminal_cause) << "\","
+        << "\"stream_name\":\"" << json_escape(event.stream_name) << "\","
+        << "\"byte_count\":" << event.byte_count << ','
+        << "\"stdout_excerpt\":\"" << json_escape(event.stdout_excerpt) << "\","
         << "\"stderr_excerpt\":\"" << json_escape(event.stderr_excerpt) << "\""
         << '}';
     return out.str();
