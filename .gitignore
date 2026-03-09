@@ -1,0 +1,6 @@
+*.db
+*.sqlite
+__pycache__/
+.design/*
+!.design/design.db
+.venv/

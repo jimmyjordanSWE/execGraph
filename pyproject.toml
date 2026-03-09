@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "autoswe"
+version = "0.1.0"
+description = "Private workflow tooling for design-first software engineering."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+autoswe = "autoswe.cli:main"
+designctl = "autoswe.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["autoswe"]
