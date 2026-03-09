@@ -14,6 +14,8 @@ Ordered follow-on specs:
 5. [05-artifact-storage-model.md](05-artifact-storage-model.md)
 6. [06-implementation-discovery.md](06-implementation-discovery.md)
 7. [07-implementation-design.md](07-implementation-design.md)
+8. [08-implementation-execution.md](08-implementation-execution.md)
+9. [09-implementation-verification-execution.md](09-implementation-verification-execution.md)
 
 Rule:
 

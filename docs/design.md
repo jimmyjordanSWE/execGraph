@@ -698,3 +698,5 @@ Supporting follow-on specifications now live under [exec-graph/README.md](exec-g
 - [exec-graph/05-artifact-storage-model.md](exec-graph/05-artifact-storage-model.md)
 - [exec-graph/06-implementation-discovery.md](exec-graph/06-implementation-discovery.md)
 - [exec-graph/07-implementation-design.md](exec-graph/07-implementation-design.md)
+- [exec-graph/08-implementation-execution.md](exec-graph/08-implementation-execution.md)
+- [exec-graph/09-implementation-verification-execution.md](exec-graph/09-implementation-verification-execution.md)

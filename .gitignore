@@ -4,3 +4,4 @@ __pycache__/
 .design/*
 !.design/design.db
 .venv/
+build/

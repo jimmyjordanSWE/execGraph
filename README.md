@@ -39,6 +39,7 @@ The exec-graph docs describe the product being designed.
 - `.design/design.db`: local design-state database
 - `docs/design.md`: exec-graph architecture spec
 - `docs/exec-graph/`: ordered follow-on exec-graph subsystem and handoff specs
+- `exec_graph/`: C++17 product source tree and runnable toy workflow proof
 - `workflows/autoswe/`: canonical autoSWE workflow definitions grouped by numbered phase folders
 - `docs/autoswe/`: supporting autoSWE rationale and reference docs grouped by numbered section folders
 - `autoswe/`: Python package for the workflow CLI and state management
