@@ -1,11 +1,9 @@
 #include "exec_graph/graph/graph_document.hpp"
-
-#include "exec_graph/runtime/process_runtime.hpp"
-
 #include <fstream>
 #include <queue>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace exec_graph::graph {
@@ -152,34 +150,6 @@ std::vector<std::string> topological_order(const GraphDocument& document) {
         throw std::runtime_error("graph contains a cycle or unreachable dependency state");
     }
     return order;
-}
-
-std::unordered_map<std::string, std::string> execute_linearized_outputs(
-    const GraphDocument& document,
-    const std::vector<std::string>& execution_order,
-    const std::unordered_map<std::string, std::string>& /* parent_outputs */
-) {
-    const auto index = node_index(document);
-    const auto incoming = incoming_edges(document);
-    std::unordered_map<std::string, std::string> outputs;
-
-    for (const auto& node_id : execution_order) {
-        const auto* node = index.at(node_id);
-        std::string stdin_data;
-        if (!incoming.at(node_id).empty()) {
-            stdin_data = outputs.at(incoming.at(node_id).front());
-        }
-        const auto result =
-            runtime::run_process(runtime::ProcessSpec{node->argv}, stdin_data);
-        if (result.exit_code != 0) {
-            throw std::runtime_error(
-                runtime::format_process_failure("node " + node_id, runtime::ProcessSpec{node->argv}, result)
-            );
-        }
-        outputs[node_id] = result.stdout_data;
-    }
-
-    return outputs;
 }
 
 }  // namespace exec_graph::graph

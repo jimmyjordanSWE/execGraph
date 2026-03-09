@@ -60,15 +60,31 @@ target_compile_options(eg_graph_document PRIVATE
   -Wpedantic
 )
 
-target_link_libraries(eg_graph_document PUBLIC eg_process_runtime)
-
 eg_apply_sanitizers(eg_graph_document)
+
+add_library(eg_graph_core
+  src/graph_core/graph_snapshot.cpp
+)
+
+target_include_directories(eg_graph_core PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_compile_options(eg_graph_core PRIVATE
+  -Wall
+  -Wextra
+  -Wpedantic
+)
+
+target_link_libraries(eg_graph_core PUBLIC eg_graph_document eg_process_runtime)
+
+eg_apply_sanitizers(eg_graph_core)
 
 add_executable(eg_demo_pipeline
   src/app/demo_pipeline.cpp
 )
 
-target_link_libraries(eg_demo_pipeline PRIVATE eg_graph_document eg_process_runtime)
+target_link_libraries(eg_demo_pipeline PRIVATE eg_graph_core eg_graph_document eg_process_runtime)
 target_include_directories(eg_demo_pipeline PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )

@@ -1,9 +1,9 @@
 #include "exec_graph/graph/graph_document.hpp"
+#include "exec_graph/graph_core/graph_snapshot.hpp"
 #include "exec_graph/runtime/process_runtime.hpp"
 
 #include <chrono>
 #include <iostream>
-#include <set>
 #include <stdexcept>
 #include <string>
 namespace {
@@ -11,20 +11,13 @@ void print_usage() {
     std::cout << "usage: eg_demo_pipeline (--workflow <path> | --graph <path>) [--benchmark <iterations>]\n";
 }
 
-std::string render_graph_outputs(const exec_graph::graph::GraphDocument& document,
+std::string render_graph_outputs(const exec_graph::graph_core::GraphSnapshot& snapshot,
                                  const std::unordered_map<std::string, std::string>& outputs) {
-    std::set<std::string> source_nodes;
-    for (const auto& edge : document.edges) {
-        source_nodes.insert(edge.from);
-    }
-
     std::string rendered;
-    for (const auto& node : document.nodes) {
-        if (source_nodes.count(node.id) != 0) {
-            continue;
-        }
-        rendered += "sink " + node.id + ":\n";
-        rendered += outputs.at(node.id);
+    for (const auto sink_id : snapshot.sink_nodes()) {
+        const auto& sink = snapshot.node(sink_id);
+        rendered += "sink " + std::string(sink.name) + ":\n";
+        rendered += outputs.at(std::string(sink.name));
         if (rendered.empty() || rendered.back() != '\n') {
             rendered += '\n';
         }
@@ -76,11 +69,10 @@ int main(int argc, char** argv) {
             }
         } else {
             const auto document = exec_graph::graph::load_graph_document(graph_path);
-            const auto order = exec_graph::graph::topological_order(document);
+            const auto snapshot = exec_graph::graph_core::build_snapshot(document);
             for (int i = 0; i < iterations; ++i) {
-                const auto outputs =
-                    exec_graph::graph::execute_linearized_outputs(document, order, {});
-                last_output = render_graph_outputs(document, outputs);
+                const auto outputs = exec_graph::graph_core::execute_snapshot_outputs(*snapshot);
+                last_output = render_graph_outputs(*snapshot, outputs);
             }
         }
         const auto ended = std::chrono::steady_clock::now();

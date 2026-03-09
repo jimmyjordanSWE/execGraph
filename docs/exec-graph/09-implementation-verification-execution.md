@@ -12,7 +12,8 @@ In scope:
 
 - the `exec_graph/` C++17 source tree
 - the reusable process-runtime module
-- the first reusable graph-document module
+- the reusable graph-document module
+- the first `graph_core` snapshot module
 - the `eg_demo_pipeline` executable
 - the two toy Linux workflow examples
 - the real graph example and invalid-graph rejection path
@@ -55,6 +56,7 @@ Functional results:
 
 - `cmake --build build/exec_graph` passed
 - `ctest --test-dir build/exec_graph --output-on-failure` passed with 5/5 tests
+- the graph execution path now runs through `graph_core::GraphSnapshot`
 - workflow A produced:
 
 ```text
@@ -85,11 +87,11 @@ Safety results:
 Performance results:
 
 - graph workflow, normal build, 50 iterations:
-  - `benchmark.total_ms=360`
-  - `benchmark.avg_ms=7.2`
+  - `benchmark.total_ms=304`
+  - `benchmark.avg_ms=6.08`
 - graph workflow, ASan/UBSan build, 50 iterations:
-  - `benchmark.total_ms=587`
-  - `benchmark.avg_ms=11.74`
+  - `benchmark.total_ms=478`
+  - `benchmark.avg_ms=9.56`
 
 These are early baseline measurements, not yet stable product benchmarks.
 
@@ -103,6 +105,7 @@ Residual concerns:
 - sanitizer coverage does not yet include thread-safety checks
 - graph execution is still limited to single-input DAG nodes and a simple text graph format
 - diagnostics are still emitted as text, not yet normalized runtime event records
+- persisted graph revisions and revision guards are not implemented yet
 
 ## Verification Verdict
 
@@ -116,7 +119,7 @@ Current verdict:
 
 Return to `Implementation execution` and continue with:
 
-1. richer workflow representation
+1. extend graph-core toward persisted snapshots and revision guards
 2. broader memory and concurrency verification
 3. additional runtime examples beyond the current two toy workflows
 4. structured runtime diagnostics and event normalization

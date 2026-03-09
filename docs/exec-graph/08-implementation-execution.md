@@ -106,7 +106,8 @@ The next pass introduced the first real graph-shaped product slice:
 
 - `exec_graph::graph::load_graph_document`
 - `exec_graph::graph::topological_order`
-- `exec_graph::graph::execute_linearized_outputs`
+- `exec_graph::graph_core::build_snapshot`
+- `exec_graph::graph_core::execute_snapshot_outputs`
 
 The current graph document supports:
 
@@ -125,6 +126,15 @@ A real graph example now exists in:
 A failing graph example now exists in:
 
 - `exec_graph/examples/failing_stderr.graph`
+
+The current runtime path no longer executes directly from the parsed document.
+It now builds an explicit in-memory `graph_core` snapshot with:
+
+- stable numeric `NodeId` values
+- dense node records
+- contiguous argv storage
+- contiguous incoming and outgoing adjacency storage
+- a revision-local monotonic arena backing the snapshot lifetime
 
 ## Verification Evidence
 
@@ -166,11 +176,11 @@ Second-pass observations:
 Graph-path observations:
 
 - graph workflow, normal build:
-  - `benchmark.total_ms=360`
-  - `benchmark.avg_ms=7.2`
+  - `benchmark.total_ms=304`
+  - `benchmark.avg_ms=6.08`
 - graph workflow, ASan/UBSan build:
-  - `benchmark.total_ms=587`
-  - `benchmark.avg_ms=11.74`
+  - `benchmark.total_ms=478`
+  - `benchmark.avg_ms=9.56`
 
 Diagnostics-path observation:
 
@@ -194,12 +204,13 @@ Mitigated in the latest pass:
 - the product can now execute a real node/edge graph document instead of only a line-based linear workflow
 - invalid cyclic graphs are now rejected explicitly
 - process failures now retain stderr output in surfaced diagnostics
+- graph execution now runs through an explicit `graph_core` snapshot instead of directly over parser-owned structures
 
 ## Next Execution Decision
 
 The next pass should keep implementation execution on the same node and target the next lowest-risk, highest-value items:
 
-1. introduce explicit in-memory graph node and edge types with tighter ownership planning for the upcoming arena-backed graph-core slice
+1. extend the `graph_core` slice toward revision guards and persisted snapshot seams
 2. add valgrind and thread-safety-oriented verification where practical
-3. continue separating graph parsing/execution concerns from app/bootstrap glue
+3. continue separating graph parsing from stable graph-core contracts
 4. move runtime diagnostics from freeform text toward structured execution events
