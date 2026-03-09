@@ -170,6 +170,13 @@ std::unique_ptr<GraphSnapshot> build_snapshot(const graph::GraphDocument& docume
 }
 
 std::unordered_map<std::string, std::string> execute_snapshot_outputs(const GraphSnapshot& snapshot) {
+    return execute_snapshot_outputs(snapshot, {});
+}
+
+std::unordered_map<std::string, std::string> execute_snapshot_outputs(
+    const GraphSnapshot& snapshot,
+    const std::function<void(const runtime::ProcessEvent&)>& event_sink
+) {
     std::unordered_map<std::string, std::string> outputs;
     outputs.reserve(snapshot.node_count());
 
@@ -182,6 +189,9 @@ std::unordered_map<std::string, std::string> execute_snapshot_outputs(const Grap
 
         const runtime::ProcessSpec spec{snapshot.argv_copy(node_id)};
         const auto result = runtime::run_process(spec, stdin_data);
+        if (event_sink) {
+            event_sink(runtime::build_process_event(std::string(snapshot.node(node_id).name), result));
+        }
         if (result.exit_code != 0) {
             throw std::runtime_error(
                 runtime::format_process_failure(

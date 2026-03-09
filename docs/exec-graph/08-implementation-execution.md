@@ -156,6 +156,15 @@ The latest pass hardened the verification surface around that implementation:
 - `exec_graph/tests/verification/run_tsan_matrix.sh`
 - `exec_graph/tests/verification/run_valgrind_graph_smoke.sh`
 
+The current pass introduced the first structured runtime-event surface:
+
+- `process.completed`
+- `process.failed`
+- `process.killed`
+- JSONL event rendering from the runtime layer
+- `--emit-events-jsonl` in `eg_demo_pipeline`
+- graph execution now emits per-node terminal events on both success and failure
+
 ## Verification Evidence
 
 Build:
@@ -225,13 +234,20 @@ Hardening-path observations:
 - ThreadSanitizer build and smoke matrix now pass under Clang
 - valgrind reports `0 errors from 0 contexts` on the graph smoke path
 
+Structured-events observations:
+
+- successful graph execution now emits JSONL entries such as:
+  - `{"name":"process.completed","subject":"count",...,"terminal_cause":"exit_zero",...}`
+- failing graph execution now emits JSONL entries such as:
+  - `{"name":"process.failed","subject":"fail",...,"terminal_cause":"exit_non_zero",...}`
+
 ## Residual Risks
 
 - the current toy runner is still a narrow demo, not yet a real graph engine
 - diagnostics are still text-first rather than structured runtime events
 - the workflow file format is intentionally simple and not yet a stable product contract
 - migration support exists, but still only as a minimal local runner with one schema file
-- runtime diagnostics are still text-first rather than structured events
+- runtime diagnostics now have a minimal structured event path, but the event model is still narrow and process-centric
 
 Mitigated in the second pass:
 
@@ -252,6 +268,6 @@ Mitigated in the latest pass:
 The next pass should keep implementation execution on the same node and target the next lowest-risk, highest-value items:
 
 1. continue tightening SQLite infra and repository seams now that migrations are explicit
-2. move runtime diagnostics from freeform text toward structured execution events
+2. widen the structured runtime event model beyond terminal process outcomes
 3. continue separating graph parsing from stable graph-core contracts
 4. widen runtime examples beyond the current small smoke set

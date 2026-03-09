@@ -16,6 +16,7 @@ void print_usage() {
     std::cout << "usage: eg_demo_pipeline "
                  "(--workflow <path> | --graph <path> | --stored-graph <id> --db <path>) "
                  "[--save-graph --graph-id <id> --db <path> --expected-revision <n>] "
+                 "[--emit-events-jsonl] "
                  "[--benchmark <iterations>]\n";
 }
 
@@ -52,8 +53,14 @@ int main(int argc, char** argv) {
         std::string save_graph_id;
         std::string database_path;
         bool save_graph = false;
+        bool emit_events_jsonl = false;
         std::optional<std::int64_t> expected_revision;
         int benchmark_iterations = 0;
+        const auto emit_event = [&emit_events_jsonl](const exec_graph::runtime::ProcessEvent& event) {
+            if (emit_events_jsonl) {
+                std::cout << exec_graph::runtime::render_process_event_json(event) << '\n';
+            }
+        };
 
         for (int i = 1; i < argc; ++i) {
             const std::string arg = argv[i];
@@ -79,6 +86,10 @@ int main(int argc, char** argv) {
             }
             if (arg == "--save-graph") {
                 save_graph = true;
+                continue;
+            }
+            if (arg == "--emit-events-jsonl") {
+                emit_events_jsonl = true;
                 continue;
             }
             if (arg == "--expected-revision" && i + 1 < argc) {
@@ -126,7 +137,14 @@ int main(int argc, char** argv) {
         if (!workflow_path.empty()) {
             const auto workflow = exec_graph::runtime::load_workflow(workflow_path);
             for (int i = 0; i < iterations; ++i) {
-                last_output = exec_graph::runtime::run_workflow(workflow);
+                if (emit_events_jsonl) {
+                    last_output = exec_graph::runtime::run_workflow(
+                        workflow,
+                        emit_event
+                    );
+                } else {
+                    last_output = exec_graph::runtime::run_workflow(workflow);
+                }
             }
         } else if (!graph_path.empty()) {
             if (save_graph) {
@@ -140,7 +158,12 @@ int main(int argc, char** argv) {
             const auto document = exec_graph::graph::load_graph_document(graph_path);
             const auto snapshot = exec_graph::graph_core::build_snapshot(document);
             for (int i = 0; i < iterations; ++i) {
-                const auto outputs = exec_graph::graph_core::execute_snapshot_outputs(*snapshot);
+                const auto outputs = emit_events_jsonl
+                    ? exec_graph::graph_core::execute_snapshot_outputs(
+                          *snapshot,
+                          emit_event
+                      )
+                    : exec_graph::graph_core::execute_snapshot_outputs(*snapshot);
                 last_output = render_graph_outputs(*snapshot, outputs);
             }
         } else {
@@ -148,7 +171,12 @@ int main(int argc, char** argv) {
             exec_graph::graph_core::GraphRepositorySqlite repository(database_path);
             const auto stored = repository.load_graph(stored_graph_id);
             for (int i = 0; i < iterations; ++i) {
-                const auto outputs = exec_graph::graph_core::execute_snapshot_outputs(*stored.snapshot);
+                const auto outputs = emit_events_jsonl
+                    ? exec_graph::graph_core::execute_snapshot_outputs(
+                          *stored.snapshot,
+                          emit_event
+                      )
+                    : exec_graph::graph_core::execute_snapshot_outputs(*stored.snapshot);
                 last_output = render_graph_outputs(*stored.snapshot, outputs);
             }
         }

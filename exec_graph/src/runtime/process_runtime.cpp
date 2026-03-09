@@ -7,7 +7,6 @@
 #include <poll.h>
 #include <sstream>
 #include <stdexcept>
-#include <system_error>
 #include <string_view>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -117,6 +116,34 @@ std::string trim_trailing_newlines(std::string text) {
     return text;
 }
 
+std::string json_escape(const std::string& value) {
+    std::string escaped;
+    escaped.reserve(value.size());
+    for (const char ch : value) {
+        switch (ch) {
+            case '\\':
+                escaped += "\\\\";
+                break;
+            case '"':
+                escaped += "\\\"";
+                break;
+            case '\n':
+                escaped += "\\n";
+                break;
+            case '\r':
+                escaped += "\\r";
+                break;
+            case '\t':
+                escaped += "\\t";
+                break;
+            default:
+                escaped += ch;
+                break;
+        }
+    }
+    return escaped;
+}
+
 }  // namespace
 
 std::vector<ProcessSpec> load_workflow(const std::string& workflow_path) {
@@ -201,24 +228,57 @@ ProcessResult run_process(const ProcessSpec& spec, const std::string& stdin_data
     }
 
     if (WIFEXITED(status)) {
-        return ProcessResult{WEXITSTATUS(status), true, false, 0, stdout_data, stderr_data};
+        return ProcessResult{static_cast<int>(pid), WEXITSTATUS(status), true, false, 0, stdout_data, stderr_data};
     }
     if (WIFSIGNALED(status)) {
-        return ProcessResult{128 + WTERMSIG(status), false, true, WTERMSIG(status), stdout_data, stderr_data};
+        return ProcessResult{static_cast<int>(pid), 128 + WTERMSIG(status), false, true, WTERMSIG(status), stdout_data, stderr_data};
     }
-    return ProcessResult{1, false, false, 0, stdout_data, stderr_data};
+    return ProcessResult{static_cast<int>(pid), 1, false, false, 0, stdout_data, stderr_data};
 }
 
 std::string run_workflow(const std::vector<ProcessSpec>& workflow) {
+    return run_workflow(workflow, {});
+}
+
+std::string run_workflow(const std::vector<ProcessSpec>& workflow,
+                         const std::function<void(const ProcessEvent&)>& event_sink) {
     std::string current_output;
     for (const auto& process : workflow) {
         const auto result = run_process(process, current_output);
+        if (event_sink) {
+            event_sink(build_process_event("command", result));
+        }
         if (result.exit_code != 0) {
             throw std::runtime_error(format_process_failure("command", process, result));
         }
         current_output = result.stdout_data;
     }
     return current_output;
+}
+
+ProcessEvent build_process_event(const std::string& subject, const ProcessResult& result) {
+    ProcessEvent event;
+    event.subject = subject;
+    event.pid = result.pid;
+    event.exit_code = result.exit_code;
+    event.signal_number = result.signal_number;
+    event.stderr_excerpt = trim_trailing_newlines(result.stderr_data);
+
+    if (result.exited && result.exit_code == 0) {
+        event.name = "process.completed";
+        event.terminal_cause = "exit_zero";
+    } else if (result.exited) {
+        event.name = "process.failed";
+        event.terminal_cause = "exit_non_zero";
+    } else if (result.signaled) {
+        event.name = "process.killed";
+        event.terminal_cause = "signal";
+    } else {
+        event.name = "process.terminated";
+        event.terminal_cause = "unknown";
+    }
+
+    return event;
 }
 
 std::string format_process_failure(const std::string& subject,
@@ -240,6 +300,20 @@ std::string format_process_failure(const std::string& subject,
         message << " | stderr: " << trimmed_stderr;
     }
     return message.str();
+}
+
+std::string render_process_event_json(const ProcessEvent& event) {
+    std::ostringstream out;
+    out << '{'
+        << "\"name\":\"" << json_escape(event.name) << "\","
+        << "\"subject\":\"" << json_escape(event.subject) << "\","
+        << "\"pid\":" << event.pid << ','
+        << "\"exit_code\":" << event.exit_code << ','
+        << "\"signal_number\":" << event.signal_number << ','
+        << "\"terminal_cause\":\"" << json_escape(event.terminal_cause) << "\","
+        << "\"stderr_excerpt\":\"" << json_escape(event.stderr_excerpt) << "\""
+        << '}';
+    return out.str();
 }
 
 }  // namespace exec_graph::runtime

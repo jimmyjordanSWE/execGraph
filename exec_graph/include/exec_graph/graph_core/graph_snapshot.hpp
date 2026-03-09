@@ -1,5 +1,7 @@
 #pragma once
 
+#include "exec_graph/runtime/process_runtime.hpp"
+
 #include "exec_graph/graph/graph_document.hpp"
 
 #include <cstddef>
@@ -7,6 +9,7 @@
 #include <memory>
 #include <memory_resource>
 #include <string>
+#include <functional>
 #include <unordered_map>
 #include <vector>
 
@@ -68,6 +71,10 @@ private:
 std::unique_ptr<GraphSnapshot> build_snapshot(const graph::GraphDocument& document);
 std::unordered_map<std::string, std::string> execute_snapshot_outputs(
     const GraphSnapshot& snapshot
+);
+std::unordered_map<std::string, std::string> execute_snapshot_outputs(
+    const GraphSnapshot& snapshot,
+    const std::function<void(const runtime::ProcessEvent&)>& event_sink
 );
 
 }  // namespace exec_graph::graph_core

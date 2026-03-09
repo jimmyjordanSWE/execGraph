@@ -212,3 +212,12 @@ add_test(
     $<TARGET_FILE:eg_migrate>
     ${CMAKE_CURRENT_SOURCE_DIR}/examples/toy_process.graph
 )
+
+add_test(
+  NAME smoke.graph_events
+  COMMAND
+    ${BASH_PROGRAM}
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke/run_graph_events.sh
+    $<TARGET_FILE:eg_demo_pipeline>
+    ${CMAKE_CURRENT_SOURCE_DIR}/examples/toy_process.graph
+)

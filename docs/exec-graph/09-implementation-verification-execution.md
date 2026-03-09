@@ -16,6 +16,7 @@ In scope:
 - the first `graph_core` snapshot module
 - the first SQLite-backed graph repository seam
 - the `eg_demo_pipeline` executable
+- the structured runtime-event JSONL path
 - the two toy Linux workflow examples
 - the real graph example and invalid-graph rejection path
 - failing-graph stderr capture path
@@ -40,6 +41,7 @@ Functional:
 - invalid-graph rejection path
 - failing-graph stderr diagnostics path
 - graph repository save/load/revision-conflict roundtrip
+- structured runtime-event success/failure path
 
 Safety:
 
@@ -91,6 +93,13 @@ sink count:
       2 PEAR
 ```
 
+- structured runtime events now emit machine-readable entries on both success and failure:
+
+```text
+{"name":"process.completed","subject":"count",...,"terminal_cause":"exit_zero",...}
+{"name":"process.failed","subject":"fail",...,"terminal_cause":"exit_non_zero",...}
+```
+
 Safety results:
 
 - `cmake -S exec_graph -B build/exec_graph_asan -G Ninja -DEG_ENABLE_ASAN=ON -DEG_ENABLE_UBSAN=ON` passed
@@ -98,7 +107,7 @@ Safety results:
 - `ctest --test-dir build/exec_graph_asan --output-on-failure` passed with 6/6 tests
 - `cmake --preset tsan` passed
 - `cmake --build build/exec_graph_tsan` passed
-- `ctest --test-dir build/exec_graph_tsan --output-on-failure` passed with 6/6 tests
+- `ctest --test-dir build/exec_graph_tsan --output-on-failure` passed with 7/7 tests
 - `valgrind --error-exitcode=99 --leak-check=full --track-origins=yes build/exec_graph/eg_demo_pipeline --graph exec_graph/examples/toy_process.graph` passed with `0 errors from 0 contexts`
 - no sanitizer failures were observed in this pass
 
@@ -122,7 +131,7 @@ Residual concerns:
 - benchmark evidence is still narrow and noisy
 - thread-oriented and valgrind-oriented verification now exist, but they are still narrow
 - graph execution is still limited to single-input DAG nodes and a simple text graph format
-- diagnostics are still emitted as text, not yet normalized runtime event records
+- structured runtime events now exist, but only for terminal process outcomes
 - migration support now exists through `eg_migrate`, but the migration set is still minimal
 
 ## Verification Verdict
@@ -138,6 +147,6 @@ Current verdict:
 Return to `Implementation execution` and continue with:
 
 1. continue tightening SQLite infra now that migrations are explicit
-2. move runtime diagnostics toward structured events instead of text-only errors
+2. widen structured runtime events beyond terminal process outcomes
 3. additional runtime examples beyond the current two toy workflows
 4. widen hardening coverage beyond the current smoke-oriented checks
