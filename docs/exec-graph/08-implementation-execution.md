@@ -136,6 +136,13 @@ It now builds an explicit in-memory `graph_core` snapshot with:
 - contiguous incoming and outgoing adjacency storage
 - a revision-local monotonic arena backing the snapshot lifetime
 
+The newest pass also introduced the first persisted graph seam:
+
+- SQLite-backed graph snapshot storage
+- save/load through `graph_core::GraphRepositorySqlite`
+- optimistic concurrency checks through `expected_revision`
+- execution of stored graphs through the same `graph_core` snapshot path
+
 ## Verification Evidence
 
 Build:
@@ -187,12 +194,20 @@ Diagnostics-path observation:
 - failing graph output now includes captured stderr, for example:
   - `node fail failed with exit code 1: cat exec_graph/examples/definitely_missing_input.txt | stderr: cat: exec_graph/examples/definitely_missing_input.txt: No such file or directory`
 
+Persistence-path observations:
+
+- saving a graph now reports:
+  - `stored graph manual_graph at revision 1`
+- loading a stored graph and executing it reproduces the expected sink output
+- conflicting updates now fail with:
+  - `revision_conflict: graph manual_graph is at revision 1, expected 7`
+
 ## Residual Risks
 
 - the current toy runner is still a narrow demo, not yet a real graph engine
 - diagnostics are still text-first rather than structured runtime events
 - the workflow file format is intentionally simple and not yet a stable product contract
-- no subsystem target split exists yet beyond the first executable
+- no migration runner exists yet beyond repository-local schema initialization
 
 Mitigated in the second pass:
 
@@ -205,12 +220,13 @@ Mitigated in the latest pass:
 - invalid cyclic graphs are now rejected explicitly
 - process failures now retain stderr output in surfaced diagnostics
 - graph execution now runs through an explicit `graph_core` snapshot instead of directly over parser-owned structures
+- graphs can now be persisted and reloaded with revision guards instead of only living as raw files
 
 ## Next Execution Decision
 
 The next pass should keep implementation execution on the same node and target the next lowest-risk, highest-value items:
 
-1. extend the `graph_core` slice toward revision guards and persisted snapshot seams
+1. add a proper migration runner and widen SQLite infra beyond repository-local schema setup
 2. add valgrind and thread-safety-oriented verification where practical
 3. continue separating graph parsing from stable graph-core contracts
 4. move runtime diagnostics from freeform text toward structured execution events

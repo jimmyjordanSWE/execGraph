@@ -14,6 +14,7 @@ In scope:
 - the reusable process-runtime module
 - the reusable graph-document module
 - the first `graph_core` snapshot module
+- the first SQLite-backed graph repository seam
 - the `eg_demo_pipeline` executable
 - the two toy Linux workflow examples
 - the real graph example and invalid-graph rejection path
@@ -38,6 +39,7 @@ Functional:
 - smoke process-graph path
 - invalid-graph rejection path
 - failing-graph stderr diagnostics path
+- graph repository save/load/revision-conflict roundtrip
 
 Safety:
 
@@ -55,7 +57,7 @@ Performance:
 Functional results:
 
 - `cmake --build build/exec_graph` passed
-- `ctest --test-dir build/exec_graph --output-on-failure` passed with 5/5 tests
+- `ctest --test-dir build/exec_graph --output-on-failure` passed with 6/6 tests
 - the graph execution path now runs through `graph_core::GraphSnapshot`
 - workflow A produced:
 
@@ -77,11 +79,21 @@ Functional results:
 eg_demo_pipeline error: node fail failed with exit code 1: cat exec_graph/examples/definitely_missing_input.txt | stderr: cat: exec_graph/examples/definitely_missing_input.txt: No such file or directory
 ```
 
+- stored-graph roundtrip now works:
+
+```text
+stored graph manual_graph at revision 1
+sink count:
+      2 APPLE
+      1 BANANA
+      2 PEAR
+```
+
 Safety results:
 
 - `cmake -S exec_graph -B build/exec_graph_asan -G Ninja -DEG_ENABLE_ASAN=ON -DEG_ENABLE_UBSAN=ON` passed
 - `cmake --build build/exec_graph_asan` passed
-- `ctest --test-dir build/exec_graph_asan --output-on-failure` passed with 5/5 tests
+- `ctest --test-dir build/exec_graph_asan --output-on-failure` passed with 6/6 tests
 - no sanitizer failures were observed in this pass
 
 Performance results:
@@ -105,7 +117,7 @@ Residual concerns:
 - sanitizer coverage does not yet include thread-safety checks
 - graph execution is still limited to single-input DAG nodes and a simple text graph format
 - diagnostics are still emitted as text, not yet normalized runtime event records
-- persisted graph revisions and revision guards are not implemented yet
+- repository-local schema setup exists, but a proper migration runner does not
 
 ## Verification Verdict
 
@@ -119,7 +131,7 @@ Current verdict:
 
 Return to `Implementation execution` and continue with:
 
-1. extend graph-core toward persisted snapshots and revision guards
+1. add a real migration runner and widen SQLite infra beyond repository-local schema setup
 2. broader memory and concurrency verification
 3. additional runtime examples beyond the current two toy workflows
 4. structured runtime diagnostics and event normalization

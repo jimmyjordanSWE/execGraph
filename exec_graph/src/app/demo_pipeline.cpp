@@ -1,14 +1,21 @@
 #include "exec_graph/graph/graph_document.hpp"
 #include "exec_graph/graph_core/graph_snapshot.hpp"
+#include "exec_graph/graph_core/graph_repository.hpp"
 #include "exec_graph/runtime/process_runtime.hpp"
 
 #include <chrono>
+#include <cstdint>
+#include <fstream>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 namespace {
 void print_usage() {
-    std::cout << "usage: eg_demo_pipeline (--workflow <path> | --graph <path>) [--benchmark <iterations>]\n";
+    std::cout << "usage: eg_demo_pipeline "
+                 "(--workflow <path> | --graph <path> | --stored-graph <id> --db <path>) "
+                 "[--save-graph --graph-id <id> --db <path> --expected-revision <n>] "
+                 "[--benchmark <iterations>]\n";
 }
 
 std::string render_graph_outputs(const exec_graph::graph_core::GraphSnapshot& snapshot,
@@ -25,12 +32,26 @@ std::string render_graph_outputs(const exec_graph::graph_core::GraphSnapshot& sn
     return rendered;
 }
 
+std::string read_file(const std::string& path) {
+    std::ifstream input(path);
+    if (!input) {
+        throw std::runtime_error("failed to open file: " + path);
+    }
+    std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    return contents;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     try {
         std::string workflow_path;
         std::string graph_path;
+        std::string stored_graph_id;
+        std::string save_graph_id;
+        std::string database_path;
+        bool save_graph = false;
+        std::optional<std::int64_t> expected_revision;
         int benchmark_iterations = 0;
 
         for (int i = 1; i < argc; ++i) {
@@ -41,6 +62,26 @@ int main(int argc, char** argv) {
             }
             if (arg == "--graph" && i + 1 < argc) {
                 graph_path = argv[++i];
+                continue;
+            }
+            if (arg == "--stored-graph" && i + 1 < argc) {
+                stored_graph_id = argv[++i];
+                continue;
+            }
+            if (arg == "--graph-id" && i + 1 < argc) {
+                save_graph_id = argv[++i];
+                continue;
+            }
+            if (arg == "--db" && i + 1 < argc) {
+                database_path = argv[++i];
+                continue;
+            }
+            if (arg == "--save-graph") {
+                save_graph = true;
+                continue;
+            }
+            if (arg == "--expected-revision" && i + 1 < argc) {
+                expected_revision = std::stoll(argv[++i]);
                 continue;
             }
             if (arg == "--benchmark" && i + 1 < argc) {
@@ -54,8 +95,27 @@ int main(int argc, char** argv) {
             throw std::runtime_error("unknown or incomplete argument: " + arg);
         }
 
-        if (workflow_path.empty() == graph_path.empty()) {
-            throw std::runtime_error("use exactly one of --workflow or --graph");
+        int mode_count = 0;
+        mode_count += workflow_path.empty() ? 0 : 1;
+        mode_count += graph_path.empty() ? 0 : 1;
+        mode_count += stored_graph_id.empty() ? 0 : 1;
+        if (mode_count != 1) {
+            throw std::runtime_error("use exactly one of --workflow, --graph, or --stored-graph");
+        }
+
+        if (save_graph) {
+            if (graph_path.empty()) {
+                throw std::runtime_error("--save-graph requires --graph");
+            }
+            if (save_graph_id.empty() || database_path.empty()) {
+                throw std::runtime_error("--save-graph requires both --graph-id and --db");
+            }
+        } else if (!save_graph_id.empty() || expected_revision.has_value()) {
+            throw std::runtime_error("--graph-id and --expected-revision are only valid with --save-graph");
+        }
+
+        if (!stored_graph_id.empty() && database_path.empty()) {
+            throw std::runtime_error("--stored-graph requires --db");
         }
 
         const int iterations = benchmark_iterations > 0 ? benchmark_iterations : 1;
@@ -67,12 +127,28 @@ int main(int argc, char** argv) {
             for (int i = 0; i < iterations; ++i) {
                 last_output = exec_graph::runtime::run_workflow(workflow);
             }
-        } else {
+        } else if (!graph_path.empty()) {
+            if (save_graph) {
+                exec_graph::graph_core::GraphRepositorySqlite repository(database_path);
+                repository.initialize_schema();
+                const auto next_revision =
+                    repository.save_graph(save_graph_id, read_file(graph_path), expected_revision);
+                std::cout << "stored graph " << save_graph_id << " at revision " << next_revision << "\n";
+                return 0;
+            }
             const auto document = exec_graph::graph::load_graph_document(graph_path);
             const auto snapshot = exec_graph::graph_core::build_snapshot(document);
             for (int i = 0; i < iterations; ++i) {
                 const auto outputs = exec_graph::graph_core::execute_snapshot_outputs(*snapshot);
                 last_output = render_graph_outputs(*snapshot, outputs);
+            }
+        } else {
+            exec_graph::graph_core::GraphRepositorySqlite repository(database_path);
+            repository.initialize_schema();
+            const auto stored = repository.load_graph(stored_graph_id);
+            for (int i = 0; i < iterations; ++i) {
+                const auto outputs = exec_graph::graph_core::execute_snapshot_outputs(*stored.snapshot);
+                last_output = render_graph_outputs(*stored.snapshot, outputs);
             }
         }
         const auto ended = std::chrono::steady_clock::now();

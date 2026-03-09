@@ -10,6 +10,18 @@ option(EG_ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(EG_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 option(EG_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
 
+find_library(SQLITE3_LIBRARY sqlite3)
+if(NOT SQLITE3_LIBRARY)
+  if(EXISTS "/lib/x86_64-linux-gnu/libsqlite3.so.0")
+    set(SQLITE3_LIBRARY "/lib/x86_64-linux-gnu/libsqlite3.so.0")
+  elseif(EXISTS "/usr/lib/x86_64-linux-gnu/libsqlite3.so.0")
+    set(SQLITE3_LIBRARY "/usr/lib/x86_64-linux-gnu/libsqlite3.so.0")
+  endif()
+endif()
+if(NOT SQLITE3_LIBRARY)
+  message(FATAL_ERROR "Could not find sqlite3 shared library")
+endif()
+
 function(eg_apply_sanitizers target_name)
   if(EG_ENABLE_TSAN)
     target_compile_options(${target_name} PRIVATE -fsanitize=thread)
@@ -64,6 +76,7 @@ eg_apply_sanitizers(eg_graph_document)
 
 add_library(eg_graph_core
   src/graph_core/graph_snapshot.cpp
+  src/graph_core/graph_repository_sqlite.cpp
 )
 
 target_include_directories(eg_graph_core PUBLIC
@@ -76,7 +89,25 @@ target_compile_options(eg_graph_core PRIVATE
   -Wpedantic
 )
 
-target_link_libraries(eg_graph_core PUBLIC eg_graph_document eg_process_runtime)
+add_library(eg_infra_sqlite
+  src/infra/sqlite/connection.cpp
+)
+
+target_include_directories(eg_infra_sqlite PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_compile_options(eg_infra_sqlite PRIVATE
+  -Wall
+  -Wextra
+  -Wpedantic
+)
+
+target_link_libraries(eg_infra_sqlite PUBLIC ${SQLITE3_LIBRARY})
+
+eg_apply_sanitizers(eg_infra_sqlite)
+
+target_link_libraries(eg_graph_core PUBLIC eg_graph_document eg_process_runtime eg_infra_sqlite)
 
 eg_apply_sanitizers(eg_graph_core)
 
@@ -152,4 +183,13 @@ add_test(
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke/run_failing_graph.sh
     $<TARGET_FILE:eg_demo_pipeline>
     ${CMAKE_CURRENT_SOURCE_DIR}/examples/failing_stderr.graph
+)
+
+add_test(
+  NAME smoke.graph_repository_roundtrip
+  COMMAND
+    ${BASH_PROGRAM}
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke/run_graph_repository_roundtrip.sh
+    $<TARGET_FILE:eg_demo_pipeline>
+    ${CMAKE_CURRENT_SOURCE_DIR}/examples/toy_process.graph
 )

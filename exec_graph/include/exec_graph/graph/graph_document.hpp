@@ -21,6 +21,7 @@ struct GraphDocument {
 };
 
 GraphDocument load_graph_document(const std::string& graph_path);
+GraphDocument load_graph_document_from_string(const std::string& graph_text, const std::string& source_label);
 std::vector<std::string> topological_order(const GraphDocument& document);
 
 }  // namespace exec_graph::graph

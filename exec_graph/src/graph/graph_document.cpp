@@ -53,12 +53,8 @@ std::unordered_map<std::string, std::vector<std::string>> outgoing_edges(const G
 
 }  // namespace
 
-GraphDocument load_graph_document(const std::string& graph_path) {
-    std::ifstream input(graph_path);
-    if (!input) {
-        throw std::runtime_error("failed to open graph file: " + graph_path);
-    }
-
+GraphDocument load_graph_document_from_string(const std::string& graph_text, const std::string& source_label) {
+    std::istringstream input(graph_text);
     GraphDocument document;
     for (std::string line; std::getline(input, line);) {
         if (line.empty() || line[0] == '#') {
@@ -89,7 +85,7 @@ GraphDocument load_graph_document(const std::string& graph_path) {
     }
 
     if (document.nodes.empty()) {
-        throw std::runtime_error("graph file contained no nodes");
+        throw std::runtime_error(source_label + " contained no nodes");
     }
 
     const auto index = node_index(document);
@@ -113,6 +109,17 @@ GraphDocument load_graph_document(const std::string& graph_path) {
 
     (void)topological_order(document);
     return document;
+}
+
+GraphDocument load_graph_document(const std::string& graph_path) {
+    std::ifstream input(graph_path);
+    if (!input) {
+        throw std::runtime_error("failed to open graph file: " + graph_path);
+    }
+
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    return load_graph_document_from_string(buffer.str(), "graph file " + graph_path);
 }
 
 std::vector<std::string> topological_order(const GraphDocument& document) {
