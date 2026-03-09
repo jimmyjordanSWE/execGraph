@@ -11,6 +11,8 @@
 namespace exec_graph::graph {
 namespace {
 
+constexpr int kDefaultGracefulShutdownMs = 250;
+
 std::vector<std::string> split_whitespace(const std::string& line) {
     std::istringstream stream(line);
     std::vector<std::string> parts;
@@ -18,6 +20,61 @@ std::vector<std::string> split_whitespace(const std::string& line) {
         parts.push_back(part);
     }
     return parts;
+}
+
+bool starts_with(const std::string& text, const std::string& prefix) {
+    return text.rfind(prefix, 0) == 0;
+}
+
+int parse_non_negative_int(const std::string& text, const std::string& label) {
+    try {
+        const int value = std::stoi(text);
+        if (value < 0) {
+            throw std::runtime_error(label + " must be non-negative");
+        }
+        return value;
+    } catch (const std::invalid_argument&) {
+        throw std::runtime_error(label + " must be an integer");
+    } catch (const std::out_of_range&) {
+        throw std::runtime_error(label + " is out of range");
+    }
+}
+
+GraphNode parse_node_tokens(const std::vector<std::string>& tokens) {
+    if (tokens.size() < 3) {
+        throw std::runtime_error("node line requires id and command");
+    }
+
+    GraphNode node;
+    node.id = tokens[1];
+    node.timeout_ms = 0;
+    node.graceful_shutdown_ms = kDefaultGracefulShutdownMs;
+
+    std::size_t cursor = 2;
+    while (cursor < tokens.size()) {
+        const auto& token = tokens[cursor];
+        if (starts_with(token, "timeout_ms=")) {
+            node.timeout_ms = parse_non_negative_int(token.substr(std::string("timeout_ms=").size()), "timeout_ms");
+            ++cursor;
+            continue;
+        }
+        if (starts_with(token, "graceful_shutdown_ms=")) {
+            node.graceful_shutdown_ms = parse_non_negative_int(
+                token.substr(std::string("graceful_shutdown_ms=").size()),
+                "graceful_shutdown_ms"
+            );
+            ++cursor;
+            continue;
+        }
+        break;
+    }
+
+    if (cursor >= tokens.size()) {
+        throw std::runtime_error("node line requires a runnable command");
+    }
+
+    node.argv.assign(tokens.begin() + static_cast<std::ptrdiff_t>(cursor), tokens.end());
+    return node;
 }
 
 std::unordered_map<std::string, const GraphNode*> node_index(const GraphDocument& document) {
@@ -67,13 +124,7 @@ GraphDocument load_graph_document_from_string(const std::string& graph_text, con
             continue;
         }
         if (tokens[0] == "node") {
-            if (tokens.size() < 3) {
-                throw std::runtime_error("node line requires id and command");
-            }
-            GraphNode node;
-            node.id = tokens[1];
-            node.argv.assign(tokens.begin() + 2, tokens.end());
-            document.nodes.push_back(std::move(node));
+            document.nodes.push_back(parse_node_tokens(tokens));
             continue;
         }
         if (tokens[0] == "edge") {

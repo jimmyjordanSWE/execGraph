@@ -158,6 +158,8 @@ The current pass replaced repository-local schema setup with a real migration pa
 The latest pass hardened the verification surface around that implementation:
 
 - `exec_graph/CMakePresets.json` now defines `debug`, `asan-ubsan`, and `tsan`
+- all configure presets now export `compile_commands.json`
+- workspace editor settings now point C/C++ tooling at `build/exec_graph/compile_commands.json`
 - `exec_graph/tests/verification/run_tsan_matrix.sh`
 - `exec_graph/tests/verification/run_valgrind_graph_smoke.sh`
 - `exec_graph/tests/smoke/run_migration_idempotent.sh`
@@ -187,6 +189,15 @@ The current pass introduced the first structured runtime-event surface:
 - `--emit-events-jsonl` in `eg_demo_pipeline`
 - workflow execution now emits workflow-run events, workflow-step progress events, and per-process terminal events on both success and failure
 - graph execution now emits graph-run events, graph-layer per-node progress events, and per-process terminal events on both success and failure
+
+The newest pass tightened runtime supervision and event serialization without changing the public runner shape:
+
+- Boost.JSON now owns JSONL event serialization instead of handwritten string escaping
+- process execution now creates an owned process group for each launched command
+- workflow commands and graph nodes can now declare `timeout_ms=<n>` and `graceful_shutdown_ms=<n>` before the command argv
+- timed-out commands now receive `SIGTERM` first and then `SIGKILL` if they outlive the grace window
+- the runtime now emits `process.stop.requested` and `process.kill.sent` control events before the terminal process event
+- a dedicated timeout smoke path now proves timeout-driven escalation and machine-readable `terminal_cause = timeout`
 
 ## Verification Evidence
 
@@ -258,6 +269,7 @@ Hardening-path observations:
 
 - ThreadSanitizer build and smoke matrix now pass under Clang
 - valgrind reports `0 errors from 0 contexts` on the graph smoke path
+- the generated compile database now includes the fetched Boost header path used by runtime event serialization
 
 Structured-events observations:
 
@@ -274,6 +286,14 @@ Structured-events observations:
   - `{"name":"process.failed","subject":"workflow.step.1",...,"terminal_cause":"exit_non_zero",...}`
   - `{"name":"workflow.step.failed","subject":"workflow.step.1",...,"stream_name":"stderr",...}`
   - `{"name":"workflow.failed","subject":"workflow",...,"related_subject":"workflow.step.1",...,"completed_step_count":0,...}`
+- timeout-driven workflow execution now emits JSONL entries such as:
+  - `{"name":"workflow.started","subject":"workflow",...,"step_count":1,...}`
+  - `{"name":"process.started","subject":"workflow.step.1",...}`
+  - `{"name":"process.stop.requested","subject":"workflow.step.1",...,"signal_number":15,"terminal_cause":"timeout",...}`
+  - `{"name":"process.kill.sent","subject":"workflow.step.1",...,"signal_number":9,"terminal_cause":"timeout",...}`
+  - `{"name":"process.killed","subject":"workflow.step.1",...,"terminal_cause":"timeout",...}`
+  - `{"name":"workflow.step.failed","subject":"workflow.step.1",...,"terminal_cause":"timeout",...}`
+  - `{"name":"workflow.failed","subject":"workflow",...,"related_subject":"workflow.step.1",...,"terminal_cause":"timeout",...}`
 - successful graph execution now emits JSONL entries such as:
   - `{"name":"graph.started","subject":"graph",...,"node_count":4,"sink_count":1,...}`
   - `{"name":"graph.node.started","subject":"count",...,"related_subject":"graph",...,"completed_node_count":3,...}`
@@ -299,13 +319,19 @@ Path-resolution observations:
 - the same toy workflow and toy graph now run correctly from both the repo root and the `exec_graph/` product root
 - stored-graph save/load now works from both `eg_migrate` and `eg_demo_pipeline` when launched from either the repo root or the `exec_graph/` product root
 
+Supervision-path observations:
+
+- workflow files can now express per-command timeout and grace windows inline before the command argv
+- graph documents can now express the same timeout metadata per node
+- timeout enforcement now happens against the owned process group rather than only the direct child pid
+
 ## Residual Risks
 
 - the current toy runner is still a narrow demo, not yet a real graph engine
 - diagnostics are still text-first rather than structured runtime events
 - the workflow file format is intentionally simple and not yet a stable product contract
 - migration support exists, but still only as a minimal local runner with one schema file
-- runtime diagnostics now cover workflow-run progress, graph-run progress, and per-process lifecycle, but broader scheduler and service surfaces still do not exist
+- runtime diagnostics now cover workflow-run progress, graph-run progress, per-process lifecycle, and timeout-driven stop/kill supervision, but broader scheduler and reusable service surfaces still do not exist
 
 Mitigated in the second pass:
 
@@ -326,6 +352,6 @@ Mitigated in the latest pass:
 The next pass should keep implementation execution on the same node and target the next lowest-risk, highest-value items:
 
 1. continue tightening SQLite infra and repository seams now that migrations are explicit
-2. widen the structured runtime event model beyond workflow and graph lifecycle toward scheduler and service surfaces
+2. widen the structured runtime event model beyond workflow, graph, and timeout-supervision lifecycle toward scheduler and reusable service surfaces
 3. continue separating graph parsing from stable graph-core contracts
 4. widen runtime examples beyond the current small smoke set

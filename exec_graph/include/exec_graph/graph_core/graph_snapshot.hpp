@@ -24,6 +24,8 @@ struct NodeRecord {
     std::pmr::string name;
     std::size_t argv_offset;
     std::size_t argv_count;
+    int timeout_ms;
+    int graceful_shutdown_ms;
     std::size_t incoming_offset;
     std::size_t incoming_count;
     std::size_t outgoing_offset;

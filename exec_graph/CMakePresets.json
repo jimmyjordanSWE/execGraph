@@ -12,7 +12,8 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/../build/exec_graph",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },
     {
@@ -22,6 +23,7 @@
       "binaryDir": "${sourceDir}/../build/exec_graph_asan",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "EG_ENABLE_ASAN": "ON",
         "EG_ENABLE_UBSAN": "ON"
       }
@@ -33,6 +35,7 @@
       "binaryDir": "${sourceDir}/../build/exec_graph_tsan",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "CMAKE_CXX_COMPILER": "clang++",
         "EG_ENABLE_TSAN": "ON"
       }

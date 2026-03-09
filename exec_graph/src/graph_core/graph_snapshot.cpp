@@ -102,6 +102,8 @@ NodeId GraphSnapshot::append_node(const graph::GraphNode& node) {
         std::pmr::string(node.id.c_str(), &arena_),
         argv_offset,
         node.argv.size(),
+        node.timeout_ms,
+        node.graceful_shutdown_ms,
         0,
         0,
         0,
@@ -215,7 +217,13 @@ std::unordered_map<std::string, std::string> execute_snapshot_outputs(
             );
         }
 
-        const runtime::ProcessSpec spec{snapshot.argv_copy(node_id), std::string(snapshot.working_directory())};
+        const auto& record = snapshot.node(node_id);
+        const runtime::ProcessSpec spec{
+            snapshot.argv_copy(node_id),
+            std::string(snapshot.working_directory()),
+            record.timeout_ms,
+            record.graceful_shutdown_ms,
+        };
         const auto result = runtime::run_process(node_name, spec, stdin_data, event_sink);
         if (event_sink) {
             event_sink(runtime::build_process_event(node_name, result));

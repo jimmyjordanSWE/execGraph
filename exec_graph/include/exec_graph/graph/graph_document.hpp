@@ -8,6 +8,8 @@ namespace exec_graph::graph {
 struct GraphNode {
     std::string id;
     std::vector<std::string> argv;
+    int timeout_ms;
+    int graceful_shutdown_ms;
 };
 
 struct GraphEdge {

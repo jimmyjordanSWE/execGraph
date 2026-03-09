@@ -1,0 +1,3 @@
+{
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/build/exec_graph/compile_commands.json"
+}

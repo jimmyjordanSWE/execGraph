@@ -273,7 +273,7 @@ def workspace_key(workspace_root: Path) -> str:
 
 
 def should_skip_path(path: Path) -> bool:
-    skipped_parts = {".git", "__pycache__", ".venv", "venv", "node_modules", ".mypy_cache", ".pytest_cache"}
+    skipped_parts = {".git", "__pycache__", ".venv", "venv", "node_modules", ".mypy_cache", ".pytest_cache", "build"}
     return any(part in skipped_parts for part in path.parts)
 
 

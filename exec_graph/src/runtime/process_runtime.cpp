@@ -1,7 +1,9 @@
 #include "exec_graph/runtime/process_runtime.hpp"
 
+#include <chrono>
 #include <cerrno>
 #include <array>
+#include <boost/json/src.hpp>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -9,12 +11,15 @@
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 namespace exec_graph::runtime {
 namespace {
+
+constexpr int kDefaultGracefulShutdownMs = 250;
 
 std::vector<std::string> split_whitespace(const std::string& line) {
     std::istringstream stream(line);
@@ -57,11 +62,169 @@ bool read_into_buffer(int fd, std::string& output, const char* stream_name) {
     return false;
 }
 
-std::pair<std::string, std::string> read_stdout_and_stderr(int stdout_fd, int stderr_fd) {
+std::string render_command(const ProcessSpec& spec) {
+    std::ostringstream message;
+    for (const auto& arg : spec.argv) {
+        message << ' ' << arg;
+    }
+    return message.str();
+}
+
+std::string trim_trailing_newlines(std::string text) {
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) {
+        text.pop_back();
+    }
+    return text;
+}
+
+std::string truncate_excerpt(const std::string& text, const std::size_t limit = 160) {
+    auto trimmed = trim_trailing_newlines(text);
+    if (trimmed.size() <= limit) {
+        return trimmed;
+    }
+    return trimmed.substr(0, limit) + "...";
+}
+
+std::string workflow_step_subject(const std::size_t step_index) {
+    return "workflow.step." + std::to_string(step_index + 1);
+}
+
+bool starts_with(const std::string& text, const std::string& prefix) {
+    return text.rfind(prefix, 0) == 0;
+}
+
+int parse_non_negative_int(const std::string& text, const std::string& label) {
+    try {
+        const int value = std::stoi(text);
+        if (value < 0) {
+            throw std::runtime_error(label + " must be non-negative");
+        }
+        return value;
+    } catch (const std::invalid_argument&) {
+        throw std::runtime_error(label + " must be an integer");
+    } catch (const std::out_of_range&) {
+        throw std::runtime_error(label + " is out of range");
+    }
+}
+
+ProcessSpec parse_process_spec_tokens(const std::vector<std::string>& tokens, const std::string& source_label) {
+    if (tokens.empty()) {
+        throw std::runtime_error(source_label + " contained no runnable command");
+    }
+
+    ProcessSpec spec;
+    spec.timeout_ms = 0;
+    spec.graceful_shutdown_ms = kDefaultGracefulShutdownMs;
+
+    std::size_t cursor = 0;
+    while (cursor < tokens.size()) {
+        const auto& token = tokens[cursor];
+        if (starts_with(token, "timeout_ms=")) {
+            spec.timeout_ms = parse_non_negative_int(token.substr(std::string("timeout_ms=").size()), "timeout_ms");
+            ++cursor;
+            continue;
+        }
+        if (starts_with(token, "graceful_shutdown_ms=")) {
+            spec.graceful_shutdown_ms = parse_non_negative_int(
+                token.substr(std::string("graceful_shutdown_ms=").size()),
+                "graceful_shutdown_ms"
+            );
+            ++cursor;
+            continue;
+        }
+        break;
+    }
+
+    if (cursor >= tokens.size()) {
+        throw std::runtime_error(source_label + " contained no runnable command");
+    }
+
+    spec.argv.assign(tokens.begin() + static_cast<std::ptrdiff_t>(cursor), tokens.end());
+    return spec;
+}
+
+void close_pipes(int stdin_pipe[2], int stdout_pipe[2], int stderr_pipe[2]) {
+    close_fd(stdin_pipe[0]);
+    close_fd(stdin_pipe[1]);
+    close_fd(stdout_pipe[0]);
+    close_fd(stdout_pipe[1]);
+    close_fd(stderr_pipe[0]);
+    close_fd(stderr_pipe[1]);
+}
+
+void send_signal_to_process_group(const pid_t pid, const int signal_number) {
+    if (kill(-pid, signal_number) == 0 || errno == ESRCH) {
+        return;
+    }
+    throw std::runtime_error("failed to signal process group");
+}
+
+ProcessResult collect_process_result(const std::string& subject,
+                                     const pid_t pid,
+                                     int stdout_fd,
+                                     int stderr_fd,
+                                     const ProcessSpec& spec,
+                                     const std::function<void(const ProcessEvent&)>& event_sink) {
     std::string stdout_data;
     std::string stderr_data;
+    bool child_running = true;
+    int status = 0;
+    bool stop_requested = false;
+    bool kill_sent = false;
+    const auto started_at = std::chrono::steady_clock::now();
+    auto kill_deadline = started_at;
 
-    while (stdout_fd >= 0 || stderr_fd >= 0) {
+    while (child_running || stdout_fd >= 0 || stderr_fd >= 0) {
+        if (child_running) {
+            const auto wait_result = waitpid(pid, &status, WNOHANG);
+            if (wait_result < 0) {
+                throw std::runtime_error("waitpid failed");
+            }
+            if (wait_result == pid) {
+                child_running = false;
+            }
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (child_running && spec.timeout_ms > 0) {
+            const auto timeout_deadline = started_at + std::chrono::milliseconds(spec.timeout_ms);
+            if (!stop_requested && now >= timeout_deadline) {
+                if (event_sink) {
+                    event_sink(build_process_stop_requested_event(subject, static_cast<int>(pid)));
+                }
+                send_signal_to_process_group(pid, SIGTERM);
+                stop_requested = true;
+                kill_deadline = now + std::chrono::milliseconds(spec.graceful_shutdown_ms);
+            } else if (stop_requested && !kill_sent && now >= kill_deadline) {
+                if (event_sink) {
+                    event_sink(build_process_kill_sent_event(subject, static_cast<int>(pid)));
+                }
+                send_signal_to_process_group(pid, SIGKILL);
+                kill_sent = true;
+            }
+        }
+
+        if (!child_running && stdout_fd < 0 && stderr_fd < 0) {
+            break;
+        }
+
+        int poll_timeout_ms = child_running ? 25 : -1;
+        if (child_running && spec.timeout_ms > 0) {
+            const auto next_deadline = stop_requested && !kill_sent
+                ? kill_deadline
+                : started_at + std::chrono::milliseconds(spec.timeout_ms);
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(next_deadline - now).count();
+            poll_timeout_ms = static_cast<int>(remaining < 0 ? 0 : std::min<long long>(remaining, 25));
+        }
+
+        if (stdout_fd < 0 && stderr_fd < 0) {
+            const int idle = poll(nullptr, 0, poll_timeout_ms);
+            if (idle < 0) {
+                throw std::runtime_error("failed to poll process output");
+            }
+            continue;
+        }
+
         const short stdout_events = stdout_fd >= 0 ? static_cast<short>(POLLIN | POLLHUP) : static_cast<short>(0);
         const short stderr_events = stderr_fd >= 0 ? static_cast<short>(POLLIN | POLLHUP) : static_cast<short>(0);
         std::array<pollfd, 2> poll_fds{{
@@ -69,7 +232,7 @@ std::pair<std::string, std::string> read_stdout_and_stderr(int stdout_fd, int st
             pollfd{stderr_fd, stderr_events, 0},
         }};
 
-        const int ready = poll(poll_fds.data(), poll_fds.size(), -1);
+        const int ready = poll(poll_fds.data(), poll_fds.size(), poll_timeout_ms);
         if (ready < 0) {
             throw std::runtime_error("failed to poll process output");
         }
@@ -99,62 +262,17 @@ std::pair<std::string, std::string> read_stdout_and_stderr(int stdout_fd, int st
         }
     }
 
-    return {stdout_data, stderr_data};
-}
-
-std::string render_command(const ProcessSpec& spec) {
-    std::ostringstream message;
-    for (const auto& arg : spec.argv) {
-        message << ' ' << arg;
+    if (WIFEXITED(status)) {
+        const auto exit_code = WEXITSTATUS(status);
+        const auto terminal_cause = stop_requested ? std::string("timeout") : (exit_code == 0 ? std::string("exit_zero") : std::string("exit_non_zero"));
+        return ProcessResult{static_cast<int>(pid), exit_code, true, false, 0, terminal_cause, stdout_data, stderr_data};
     }
-    return message.str();
-}
-
-std::string trim_trailing_newlines(std::string text) {
-    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) {
-        text.pop_back();
+    if (WIFSIGNALED(status)) {
+        const auto signal_number = WTERMSIG(status);
+        const auto terminal_cause = stop_requested ? std::string("timeout") : std::string("signal");
+        return ProcessResult{static_cast<int>(pid), 128 + signal_number, false, true, signal_number, terminal_cause, stdout_data, stderr_data};
     }
-    return text;
-}
-
-std::string truncate_excerpt(const std::string& text, const std::size_t limit = 160) {
-    auto trimmed = trim_trailing_newlines(text);
-    if (trimmed.size() <= limit) {
-        return trimmed;
-    }
-    return trimmed.substr(0, limit) + "...";
-}
-
-std::string json_escape(const std::string& value) {
-    std::string escaped;
-    escaped.reserve(value.size());
-    for (const char ch : value) {
-        switch (ch) {
-            case '\\':
-                escaped += "\\\\";
-                break;
-            case '"':
-                escaped += "\\\"";
-                break;
-            case '\n':
-                escaped += "\\n";
-                break;
-            case '\r':
-                escaped += "\\r";
-                break;
-            case '\t':
-                escaped += "\\t";
-                break;
-            default:
-                escaped += ch;
-                break;
-        }
-    }
-    return escaped;
-}
-
-std::string workflow_step_subject(const std::size_t step_index) {
-    return "workflow.step." + std::to_string(step_index + 1);
+    return ProcessResult{static_cast<int>(pid), 1, false, false, 0, "unknown", stdout_data, stderr_data};
 }
 
 }  // namespace
@@ -172,7 +290,9 @@ std::vector<ProcessSpec> load_workflow(const std::string& workflow_path) {
         }
         auto tokens = split_whitespace(line);
         if (!tokens.empty()) {
-            workflow.push_back(ProcessSpec{std::move(tokens), std::filesystem::absolute(std::filesystem::path(workflow_path)).parent_path().string()});
+            auto spec = parse_process_spec_tokens(tokens, "workflow file " + workflow_path);
+            spec.working_directory = std::filesystem::absolute(std::filesystem::path(workflow_path)).parent_path().string();
+            workflow.push_back(std::move(spec));
         }
     }
 
@@ -204,10 +324,16 @@ ProcessResult run_process(const std::string& subject,
 
     const pid_t pid = fork();
     if (pid < 0) {
+        close_pipes(stdin_pipe, stdout_pipe, stderr_pipe);
         throw std::runtime_error("fork failed");
     }
 
     if (pid == 0) {
+        if (setpgid(0, 0) != 0) {
+            const std::string message = "setpgid failed: " + std::string(std::strerror(errno)) + "\n";
+            (void)!write(STDERR_FILENO, message.c_str(), message.size());
+            _exit(127);
+        }
         if (!spec.working_directory.empty() && chdir(spec.working_directory.c_str()) != 0) {
             const std::string message = "chdir failed for " + spec.working_directory + ": " + std::strerror(errno) + "\n";
             (void)!write(STDERR_FILENO, message.c_str(), message.size());
@@ -236,6 +362,11 @@ ProcessResult run_process(const std::string& subject,
         _exit(127);
     }
 
+    if (setpgid(pid, pid) != 0 && errno != EACCES && errno != ESRCH) {
+        close_pipes(stdin_pipe, stdout_pipe, stderr_pipe);
+        throw std::runtime_error("failed to assign process group");
+    }
+
     if (event_sink) {
         event_sink(build_process_started_event(subject, static_cast<int>(pid)));
     }
@@ -249,27 +380,16 @@ ProcessResult run_process(const std::string& subject,
     }
     close(stdin_pipe[1]);
 
-    const auto [stdout_data, stderr_data] = read_stdout_and_stderr(stdout_pipe[0], stderr_pipe[0]);
+    const auto result = collect_process_result(subject, pid, stdout_pipe[0], stderr_pipe[0], spec, event_sink);
 
-    if (event_sink && !stdout_data.empty()) {
-        event_sink(build_process_stream_event(subject, static_cast<int>(pid), "stdout", stdout_data));
+    if (event_sink && !result.stdout_data.empty()) {
+        event_sink(build_process_stream_event(subject, static_cast<int>(pid), "stdout", result.stdout_data));
     }
-    if (event_sink && !stderr_data.empty()) {
-        event_sink(build_process_stream_event(subject, static_cast<int>(pid), "stderr", stderr_data));
-    }
-
-    int status = 0;
-    if (waitpid(pid, &status, 0) < 0) {
-        throw std::runtime_error("waitpid failed");
+    if (event_sink && !result.stderr_data.empty()) {
+        event_sink(build_process_stream_event(subject, static_cast<int>(pid), "stderr", result.stderr_data));
     }
 
-    if (WIFEXITED(status)) {
-        return ProcessResult{static_cast<int>(pid), WEXITSTATUS(status), true, false, 0, stdout_data, stderr_data};
-    }
-    if (WIFSIGNALED(status)) {
-        return ProcessResult{static_cast<int>(pid), 128 + WTERMSIG(status), false, true, WTERMSIG(status), stdout_data, stderr_data};
-    }
-    return ProcessResult{static_cast<int>(pid), 1, false, false, 0, stdout_data, stderr_data};
+    return result;
 }
 
 std::string run_workflow(const std::vector<ProcessSpec>& workflow) {
@@ -372,7 +492,7 @@ ProcessEvent build_workflow_failed_event(const int step_count,
     event.pid = result.pid;
     event.exit_code = result.exit_code;
     event.signal_number = result.signal_number;
-    event.terminal_cause = result.signaled ? "signal" : "exit_non_zero";
+    event.terminal_cause = result.terminal_cause;
     event.stream_name = "";
     event.byte_count = 0;
     event.step_count = step_count;
@@ -443,7 +563,7 @@ ProcessEvent build_workflow_step_failed_event(const std::string& step_name,
     event.pid = result.pid;
     event.exit_code = result.exit_code;
     event.signal_number = result.signal_number;
-    event.terminal_cause = result.signaled ? "signal" : "exit_non_zero";
+    event.terminal_cause = result.terminal_cause;
     event.stream_name = result.stderr_data.empty() ? "stdout" : "stderr";
     event.byte_count = static_cast<int>(result.stderr_data.empty() ? result.stdout_data.size() : result.stderr_data.size());
     event.step_count = step_count;
@@ -465,6 +585,48 @@ ProcessEvent build_process_started_event(const std::string& subject, const int p
     event.exit_code = 0;
     event.signal_number = 0;
     event.terminal_cause = "";
+    event.stream_name = "";
+    event.byte_count = 0;
+    event.step_count = 0;
+    event.completed_step_count = 0;
+    event.node_count = 0;
+    event.sink_count = 0;
+    event.completed_node_count = 0;
+    event.stdout_excerpt = "";
+    event.stderr_excerpt = "";
+    return event;
+}
+
+ProcessEvent build_process_stop_requested_event(const std::string& subject, const int pid) {
+    ProcessEvent event;
+    event.name = "process.stop.requested";
+    event.subject = subject;
+    event.related_subject = "";
+    event.pid = pid;
+    event.exit_code = 0;
+    event.signal_number = SIGTERM;
+    event.terminal_cause = "timeout";
+    event.stream_name = "";
+    event.byte_count = 0;
+    event.step_count = 0;
+    event.completed_step_count = 0;
+    event.node_count = 0;
+    event.sink_count = 0;
+    event.completed_node_count = 0;
+    event.stdout_excerpt = "";
+    event.stderr_excerpt = "";
+    return event;
+}
+
+ProcessEvent build_process_kill_sent_event(const std::string& subject, const int pid) {
+    ProcessEvent event;
+    event.name = "process.kill.sent";
+    event.subject = subject;
+    event.related_subject = "";
+    event.pid = pid;
+    event.exit_code = 0;
+    event.signal_number = SIGKILL;
+    event.terminal_cause = "timeout";
     event.stream_name = "";
     event.byte_count = 0;
     event.step_count = 0;
@@ -520,16 +682,16 @@ ProcessEvent build_process_event(const std::string& subject, const ProcessResult
 
     if (result.exited && result.exit_code == 0) {
         event.name = "process.completed";
-        event.terminal_cause = "exit_zero";
+        event.terminal_cause = result.terminal_cause;
     } else if (result.exited) {
         event.name = "process.failed";
-        event.terminal_cause = "exit_non_zero";
+        event.terminal_cause = result.terminal_cause;
     } else if (result.signaled) {
         event.name = "process.killed";
-        event.terminal_cause = "signal";
+        event.terminal_cause = result.terminal_cause;
     } else {
         event.name = "process.terminated";
-        event.terminal_cause = "unknown";
+        event.terminal_cause = result.terminal_cause;
     }
 
     return event;
@@ -589,7 +751,7 @@ ProcessEvent build_graph_failed_event(const int node_count,
     event.pid = result.pid;
     event.exit_code = result.exit_code;
     event.signal_number = result.signal_number;
-    event.terminal_cause = result.signaled ? "signal" : "exit_non_zero";
+    event.terminal_cause = result.terminal_cause;
     event.stream_name = "";
     event.byte_count = 0;
     event.step_count = 0;
@@ -663,7 +825,7 @@ ProcessEvent build_graph_node_failed_event(const std::string& node_name,
     event.pid = result.pid;
     event.exit_code = result.exit_code;
     event.signal_number = result.signal_number;
-    event.terminal_cause = result.signaled ? "signal" : "exit_non_zero";
+    event.terminal_cause = result.terminal_cause;
     event.stream_name = result.stderr_data.empty() ? "stdout" : "stderr";
     event.byte_count = static_cast<int>(result.stderr_data.empty() ? result.stdout_data.size() : result.stderr_data.size());
     event.step_count = 0;
@@ -681,7 +843,14 @@ std::string format_process_failure(const std::string& subject,
                                    const ProcessResult& result) {
     std::ostringstream message;
     message << subject << " failed";
-    if (result.exited) {
+    if (result.terminal_cause == "timeout") {
+        message << " after timeout";
+        if (result.signaled) {
+            message << " with signal " << result.signal_number;
+        } else if (result.exited) {
+            message << " with exit code " << result.exit_code;
+        }
+    } else if (result.exited) {
         message << " with exit code " << result.exit_code;
     } else if (result.signaled) {
         message << " with signal " << result.signal_number;
@@ -698,26 +867,24 @@ std::string format_process_failure(const std::string& subject,
 }
 
 std::string render_process_event_json(const ProcessEvent& event) {
-    std::ostringstream out;
-    out << '{'
-        << "\"name\":\"" << json_escape(event.name) << "\","
-        << "\"subject\":\"" << json_escape(event.subject) << "\","
-        << "\"related_subject\":\"" << json_escape(event.related_subject) << "\"," 
-        << "\"pid\":" << event.pid << ','
-        << "\"exit_code\":" << event.exit_code << ','
-        << "\"signal_number\":" << event.signal_number << ','
-        << "\"terminal_cause\":\"" << json_escape(event.terminal_cause) << "\","
-        << "\"stream_name\":\"" << json_escape(event.stream_name) << "\","
-        << "\"byte_count\":" << event.byte_count << ','
-        << "\"step_count\":" << event.step_count << ','
-        << "\"completed_step_count\":" << event.completed_step_count << ','
-        << "\"node_count\":" << event.node_count << ','
-        << "\"sink_count\":" << event.sink_count << ','
-        << "\"completed_node_count\":" << event.completed_node_count << ','
-        << "\"stdout_excerpt\":\"" << json_escape(event.stdout_excerpt) << "\","
-        << "\"stderr_excerpt\":\"" << json_escape(event.stderr_excerpt) << "\""
-        << '}';
-    return out.str();
+    boost::json::object json_event;
+    json_event["name"] = event.name;
+    json_event["subject"] = event.subject;
+    json_event["related_subject"] = event.related_subject;
+    json_event["pid"] = event.pid;
+    json_event["exit_code"] = event.exit_code;
+    json_event["signal_number"] = event.signal_number;
+    json_event["terminal_cause"] = event.terminal_cause;
+    json_event["stream_name"] = event.stream_name;
+    json_event["byte_count"] = event.byte_count;
+    json_event["step_count"] = event.step_count;
+    json_event["completed_step_count"] = event.completed_step_count;
+    json_event["node_count"] = event.node_count;
+    json_event["sink_count"] = event.sink_count;
+    json_event["completed_node_count"] = event.completed_node_count;
+    json_event["stdout_excerpt"] = event.stdout_excerpt;
+    json_event["stderr_excerpt"] = event.stderr_excerpt;
+    return boost::json::serialize(json_event);
 }
 
 }  // namespace exec_graph::runtime

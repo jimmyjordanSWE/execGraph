@@ -9,6 +9,8 @@ namespace exec_graph::runtime {
 struct ProcessSpec {
     std::vector<std::string> argv;
     std::string working_directory;
+    int timeout_ms;
+    int graceful_shutdown_ms;
 };
 
 struct ProcessResult {
@@ -17,6 +19,7 @@ struct ProcessResult {
     bool exited;
     bool signaled;
     int signal_number;
+    std::string terminal_cause;
     std::string stdout_data;
     std::string stderr_data;
 };
@@ -69,6 +72,8 @@ ProcessEvent build_workflow_step_failed_event(const std::string& step_name,
                                               int completed_step_count,
                                               const ProcessResult& result);
 ProcessEvent build_process_started_event(const std::string& subject, int pid);
+ProcessEvent build_process_stop_requested_event(const std::string& subject, int pid);
+ProcessEvent build_process_kill_sent_event(const std::string& subject, int pid);
 ProcessEvent build_process_stream_event(const std::string& subject,
                                         int pid,
                                         const std::string& stream_name,

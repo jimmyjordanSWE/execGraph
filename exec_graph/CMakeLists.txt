@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 
 project(exec_graph LANGUAGES CXX)
 
+include(FetchContent)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -20,6 +22,18 @@ if(NOT SQLITE3_LIBRARY)
 endif()
 if(NOT SQLITE3_LIBRARY)
   message(FATAL_ERROR "Could not find sqlite3 shared library")
+endif()
+
+find_path(BOOST_JSON_INCLUDE_DIR boost/json.hpp)
+if(NOT BOOST_JSON_INCLUDE_DIR)
+  message(STATUS "Boost.JSON headers not found locally; fetching Boost 1.83 source tree for header-only JSON support")
+  FetchContent_Declare(
+    boost_headers
+    URL https://archives.boost.io/release/1.83.0/source/boost_1_83_0.tar.gz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  )
+  FetchContent_MakeAvailable(boost_headers)
+  set(BOOST_JSON_INCLUDE_DIR "${boost_headers_SOURCE_DIR}")
 endif()
 
 function(eg_apply_sanitizers target_name)
@@ -48,6 +62,16 @@ add_library(eg_process_runtime
 
 target_include_directories(eg_process_runtime PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_include_directories(eg_process_runtime PRIVATE
+  ${BOOST_JSON_INCLUDE_DIR}
+)
+
+target_compile_definitions(eg_process_runtime PRIVATE
+  BOOST_JSON_NO_LIB=1
+  BOOST_CONTAINER_NO_LIB=1
+  BOOST_SYSTEM_NO_LIB=1
 )
 
 target_compile_options(eg_process_runtime PRIVATE
@@ -238,6 +262,15 @@ add_test(
     $<TARGET_FILE:eg_demo_pipeline>
     ${CMAKE_CURRENT_SOURCE_DIR}/examples/toy_linux.workflow
     ${CMAKE_CURRENT_SOURCE_DIR}/examples/failing_workflow.workflow
+)
+
+add_test(
+  NAME smoke.workflow_timeout
+  COMMAND
+    ${BASH_PROGRAM}
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke/run_timeout_workflow.sh
+    $<TARGET_FILE:eg_demo_pipeline>
+    ${CMAKE_CURRENT_SOURCE_DIR}/examples/timed_out.workflow
 )
 
 add_test(

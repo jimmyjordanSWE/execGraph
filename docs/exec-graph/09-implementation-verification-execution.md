@@ -21,17 +21,19 @@ In scope:
 - the real graph example and invalid-graph rejection path
 - failing-graph stderr capture path
 - workflow-run runtime-event success/failure path
+- timeout-driven process supervision and control-event path
 - normal-build and ASan/UBSan verification loops
 - ThreadSanitizer verification loop
 - valgrind graph smoke verification
 - migration idempotency verification
 - file-local example path verification
+- compile-database generation for editor/tooling correctness
 - initial benchmark evidence
 
 Out of scope:
 
 - broader subsystem contract fixtures
-- long-running service semantics
+- reusable long-running service lifecycle semantics
 
 ## Verification Matrix
 
@@ -47,6 +49,7 @@ Functional:
 - structured runtime-event success/failure path
 - workflow-level runtime-event success/failure path
 - graph-level runtime-event success/failure path
+- timeout-supervision stop/kill escalation path
 
 Safety:
 
@@ -70,8 +73,10 @@ Functional results:
 - `ctest --test-dir build/exec_graph --output-on-failure` now passes with 8/8 tests including migration idempotency coverage
 - `ctest --test-dir build/exec_graph --output-on-failure` now passes with 9/9 tests including relative-path execution coverage
 - `ctest --test-dir build/exec_graph --output-on-failure` now passes with 10/10 tests including workflow-event coverage
+- `ctest --test-dir build/exec_graph --output-on-failure` now passes with 11/11 tests including timeout supervision coverage
 - file-based workflows and graphs now execute correctly from the `exec_graph/` product root as well as the repo root
 - the graph execution path now runs through `graph_core::GraphSnapshot`
+- all configure presets now export `compile_commands.json`, and the workspace editor points at the debug compile database
 - workflow A produced:
 
 ```text
@@ -116,6 +121,13 @@ sink count:
 {"name":"process.failed","subject":"workflow.step.1",...,"terminal_cause":"exit_non_zero",...}
 {"name":"workflow.step.failed","subject":"workflow.step.1",...,"stream_name":"stderr",...}
 {"name":"workflow.failed","subject":"workflow",...,"related_subject":"workflow.step.1",...,"completed_step_count":0,...}
+{"name":"workflow.started","subject":"workflow",...,"step_count":1,...}
+{"name":"process.started","subject":"workflow.step.1",...}
+{"name":"process.stop.requested","subject":"workflow.step.1",...,"signal_number":15,"terminal_cause":"timeout",...}
+{"name":"process.kill.sent","subject":"workflow.step.1",...,"signal_number":9,"terminal_cause":"timeout",...}
+{"name":"process.killed","subject":"workflow.step.1",...,"terminal_cause":"timeout",...}
+{"name":"workflow.step.failed","subject":"workflow.step.1",...,"terminal_cause":"timeout",...}
+{"name":"workflow.failed","subject":"workflow",...,"related_subject":"workflow.step.1",...,"terminal_cause":"timeout",...}
 {"name":"graph.started","subject":"graph",...,"node_count":4,"sink_count":1,...}
 {"name":"graph.node.started","subject":"count",...,"related_subject":"graph",...,"completed_node_count":3,...}
 {"name":"process.started","subject":"count",...}
@@ -136,13 +148,14 @@ Safety results:
 
 - `cmake -S exec_graph -B build/exec_graph_asan -G Ninja -DEG_ENABLE_ASAN=ON -DEG_ENABLE_UBSAN=ON` passed
 - `cmake --build build/exec_graph_asan` passed
-- `ctest --test-dir build/exec_graph_asan --output-on-failure` passed with 6/6 tests
+- `ctest --test-dir build/exec_graph_asan --output-on-failure` passed with 11/11 tests
 - `cmake --preset tsan` passed
 - `cmake --build build/exec_graph_tsan` passed
-- `ctest --test-dir build/exec_graph_tsan --output-on-failure` passed with 7/7 tests
+- `ctest --test-dir build/exec_graph_tsan --output-on-failure` passed with 11/11 tests
 - `valgrind --error-exitcode=99 --leak-check=full --track-origins=yes build/exec_graph/eg_demo_pipeline --graph exec_graph/examples/toy_process.graph` passed with `0 errors from 0 contexts`
 - running `eg_migrate` twice against the same database cleanly reported `applied=2, skipped=0` and then `applied=0, skipped=2`
 - running `eg_demo_pipeline --workflow ... --emit-events-jsonl` now emits workflow-run terminal outcomes and workflow-step progress signals on both success and failure
+- running `eg_demo_pipeline --workflow exec_graph/examples/timed_out.workflow --emit-events-jsonl` now emits timeout-driven `process.stop.requested`, `process.kill.sent`, and terminal `process.killed` events with `terminal_cause = timeout`
 - running `eg_demo_pipeline` from `exec_graph/` with `--workflow examples/toy_linux.workflow` and `--graph examples/toy_process.graph` both succeeded
 - stored-graph repository roundtrip still succeeded after persisting the graph working directory alongside source text
 - product-root stored-graph save/load now succeeds after `eg_demo_pipeline` adopted the same default migration-path resolution as `eg_migrate`
@@ -169,7 +182,7 @@ Residual concerns:
 - thread-oriented and valgrind-oriented verification now exist, but they are still narrow
 - graph execution is still limited to single-input DAG nodes and a simple text graph format
 - file-based execution no longer depends on repo-root cwd assumptions
-- structured runtime events now include workflow-run terminal outcomes, workflow-step progress, graph-run terminal outcomes, and graph-layer node progress, but not yet broader scheduler/runtime surfaces
+- structured runtime events now include workflow-run terminal outcomes, workflow-step progress, timeout-driven supervision, graph-run terminal outcomes, and graph-layer node progress, but not yet broader scheduler/runtime surfaces
 - migration support now exists through `eg_migrate`, but the migration set is still minimal
 - migration execution is now idempotent and visible in smoke verification, but the migration set is still minimal
 
@@ -186,6 +199,6 @@ Current verdict:
 Return to `Implementation execution` and continue with:
 
 1. continue tightening SQLite infra now that migrations are explicit
-2. continue widening structured runtime events from workflow and graph progress signals toward broader scheduler/runtime surfaces
+2. continue widening structured runtime events from workflow, graph, and timeout-supervision signals toward broader scheduler/runtime surfaces
 3. additional runtime examples beyond the current two toy workflows
 4. widen hardening coverage beyond the current smoke-oriented checks

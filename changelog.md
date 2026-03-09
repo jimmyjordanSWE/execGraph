@@ -2,6 +2,10 @@
 
 ## 2026-03-09
 
+- Added owned process-group supervision and per-command `timeout_ms` / `graceful_shutdown_ms` controls to exec-graph workflows and graph nodes, with timeout-driven `SIGTERM` then `SIGKILL` behavior plus `process.stop.requested` and `process.kill.sent` runtime events and smoke coverage.
+- Taught autoSWE code indexing to skip generated `build/` trees so workflow resume does not time out after CMake-generated compile databases or fetched third-party sources appear under build outputs.
+- Enabled exec-graph CMake compile database generation in all presets and added workspace editor settings to point at the debug `compile_commands.json` output.
+- Replaced exec-graph's handwritten JSONL event escaping with Boost.JSON-backed serialization, and taught the CMake build to bootstrap Boost 1.83 headers automatically when the host toolchain does not already provide Boost.JSON.
 - Updated the autoSWE implementation workflow so implementation discovery must emit a mandatory implementation-context artifact, and downstream implementation design, execution, and verification steps must consume it.
 - Widened exec-graph JSONL runtime events with `workflow.started`, `workflow.step.started`, `workflow.step.completed`, `workflow.step.failed`, `workflow.completed`, and `workflow.failed`, plus smoke coverage for workflow-layer progress and terminal outcomes.
 - Fixed file-based workflow and graph execution so command paths resolve relative to the workflow or graph file directory, and added smoke coverage for running examples from the `exec_graph` product root.
