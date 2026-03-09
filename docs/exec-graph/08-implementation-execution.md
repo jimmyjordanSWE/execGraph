@@ -86,7 +86,7 @@ The example input is transformed into the deterministic output:
 - each process receives explicit stdin/stdout pipe setup
 - the parent closes pipe ends deterministically after fork
 - stdout is captured and passed as stdin to the next process
-- stderr is left attached to the parent for now to keep the first proof loop simple
+- stderr is now captured explicitly and preserved in surfaced failure diagnostics
 
 This is intentionally small but already exercises:
 
@@ -101,6 +101,30 @@ The second pass also moved the process execution logic out of `main` and into re
 - `exec_graph::runtime::load_workflow`
 - `exec_graph::runtime::run_process`
 - `exec_graph::runtime::run_workflow`
+
+The next pass introduced the first real graph-shaped product slice:
+
+- `exec_graph::graph::load_graph_document`
+- `exec_graph::graph::topological_order`
+- `exec_graph::graph::execute_linearized_outputs`
+
+The current graph document supports:
+
+- explicit `node` declarations
+- explicit `edge` declarations
+- duplicate-node rejection
+- unknown-node rejection
+- cycle rejection
+- topological execution of DAG-shaped process graphs
+- per-process stderr capture for failing nodes and commands
+
+A real graph example now exists in:
+
+- `exec_graph/examples/toy_process.graph`
+
+A failing graph example now exists in:
+
+- `exec_graph/examples/failing_stderr.graph`
 
 ## Verification Evidence
 
@@ -139,10 +163,24 @@ Second-pass observations:
   - `benchmark.total_ms=455`
   - `benchmark.avg_ms=9.1`
 
+Graph-path observations:
+
+- graph workflow, normal build:
+  - `benchmark.total_ms=360`
+  - `benchmark.avg_ms=7.2`
+- graph workflow, ASan/UBSan build:
+  - `benchmark.total_ms=587`
+  - `benchmark.avg_ms=11.74`
+
+Diagnostics-path observation:
+
+- failing graph output now includes captured stderr, for example:
+  - `node fail failed with exit code 1: cat exec_graph/examples/definitely_missing_input.txt | stderr: cat: exec_graph/examples/definitely_missing_input.txt: No such file or directory`
+
 ## Residual Risks
 
 - the current toy runner is still a narrow demo, not yet a real graph engine
-- stderr capture and richer diagnostics are still thin
+- diagnostics are still text-first rather than structured runtime events
 - the workflow file format is intentionally simple and not yet a stable product contract
 - no subsystem target split exists yet beyond the first executable
 
@@ -151,11 +189,17 @@ Mitigated in the second pass:
 - ASan and UBSan build options are now wired into `CMake`
 - a second toy workflow now proves the runner is not overfit to one output shape
 
+Mitigated in the latest pass:
+
+- the product can now execute a real node/edge graph document instead of only a line-based linear workflow
+- invalid cyclic graphs are now rejected explicitly
+- process failures now retain stderr output in surfaced diagnostics
+
 ## Next Execution Decision
 
 The next pass should keep implementation execution on the same node and target the next lowest-risk, highest-value items:
 
-1. introduce the first real graph-shaped workflow representation instead of a line-based toy format
-2. add stderr capture and richer execution diagnostics
-3. add valgrind and thread-safety-oriented verification where practical
-4. continue splitting app code from reusable runtime pieces
+1. introduce explicit in-memory graph node and edge types with tighter ownership planning for the upcoming arena-backed graph-core slice
+2. add valgrind and thread-safety-oriented verification where practical
+3. continue separating graph parsing/execution concerns from app/bootstrap glue
+4. move runtime diagnostics from freeform text toward structured execution events

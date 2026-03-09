@@ -1,0 +1,4 @@
+node a printf HELLO
+node b tr A-Z a-z
+edge a b
+edge b a

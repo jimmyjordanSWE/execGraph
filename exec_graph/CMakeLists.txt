@@ -46,11 +46,29 @@ target_compile_options(eg_process_runtime PRIVATE
 
 eg_apply_sanitizers(eg_process_runtime)
 
+add_library(eg_graph_document
+  src/graph/graph_document.cpp
+)
+
+target_include_directories(eg_graph_document PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_compile_options(eg_graph_document PRIVATE
+  -Wall
+  -Wextra
+  -Wpedantic
+)
+
+target_link_libraries(eg_graph_document PUBLIC eg_process_runtime)
+
+eg_apply_sanitizers(eg_graph_document)
+
 add_executable(eg_demo_pipeline
   src/app/demo_pipeline.cpp
 )
 
-target_link_libraries(eg_demo_pipeline PRIVATE eg_process_runtime)
+target_link_libraries(eg_demo_pipeline PRIVATE eg_graph_document eg_process_runtime)
 target_include_directories(eg_demo_pipeline PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
@@ -87,4 +105,35 @@ add_test(
     $<TARGET_FILE:eg_demo_pipeline>
     ${CMAKE_CURRENT_SOURCE_DIR}/examples/unique_count.workflow
     "3"
+)
+
+add_test(
+  NAME smoke.process_graph
+  COMMAND
+    ${BASH_PROGRAM}
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke/run_graph_workflow.sh
+    $<TARGET_FILE:eg_demo_pipeline>
+    ${CMAKE_CURRENT_SOURCE_DIR}/examples/toy_process.graph
+    "sink count:"
+    "2 APPLE"
+    "1 BANANA"
+    "2 PEAR"
+)
+
+add_test(
+  NAME smoke.invalid_process_graph
+  COMMAND
+    ${BASH_PROGRAM}
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke/run_invalid_graph.sh
+    $<TARGET_FILE:eg_demo_pipeline>
+    ${CMAKE_CURRENT_SOURCE_DIR}/examples/invalid_cycle.graph
+)
+
+add_test(
+  NAME smoke.failing_process_graph
+  COMMAND
+    ${BASH_PROGRAM}
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke/run_failing_graph.sh
+    $<TARGET_FILE:eg_demo_pipeline>
+    ${CMAKE_CURRENT_SOURCE_DIR}/examples/failing_stderr.graph
 )

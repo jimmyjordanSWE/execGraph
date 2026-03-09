@@ -12,8 +12,11 @@ In scope:
 
 - the `exec_graph/` C++17 source tree
 - the reusable process-runtime module
+- the first reusable graph-document module
 - the `eg_demo_pipeline` executable
 - the two toy Linux workflow examples
+- the real graph example and invalid-graph rejection path
+- failing-graph stderr capture path
 - normal-build and ASan/UBSan verification loops
 - initial benchmark evidence
 
@@ -31,6 +34,9 @@ Functional:
 - normal build
 - smoke workflow A
 - smoke workflow B
+- smoke process-graph path
+- invalid-graph rejection path
+- failing-graph stderr diagnostics path
 
 Safety:
 
@@ -40,15 +46,15 @@ Safety:
 
 Performance:
 
-- normal-build benchmark for workflow A
-- ASan/UBSan benchmark for workflow B
+- normal-build benchmark for the process-graph path
+- ASan/UBSan benchmark for the process-graph path
 
 ## Results
 
 Functional results:
 
 - `cmake --build build/exec_graph` passed
-- `ctest --test-dir build/exec_graph --output-on-failure` passed with 2/2 tests
+- `ctest --test-dir build/exec_graph --output-on-failure` passed with 5/5 tests
 - workflow A produced:
 
 ```text
@@ -63,21 +69,27 @@ Functional results:
 3
 ```
 
+- failing graph output included captured stderr:
+
+```text
+eg_demo_pipeline error: node fail failed with exit code 1: cat exec_graph/examples/definitely_missing_input.txt | stderr: cat: exec_graph/examples/definitely_missing_input.txt: No such file or directory
+```
+
 Safety results:
 
 - `cmake -S exec_graph -B build/exec_graph_asan -G Ninja -DEG_ENABLE_ASAN=ON -DEG_ENABLE_UBSAN=ON` passed
 - `cmake --build build/exec_graph_asan` passed
-- `ctest --test-dir build/exec_graph_asan --output-on-failure` passed with 2/2 tests
+- `ctest --test-dir build/exec_graph_asan --output-on-failure` passed with 5/5 tests
 - no sanitizer failures were observed in this pass
 
 Performance results:
 
-- workflow A, normal build, 50 iterations:
-  - `benchmark.total_ms=501`
-  - `benchmark.avg_ms=10.02`
-- workflow B, ASan/UBSan build, 50 iterations:
-  - `benchmark.total_ms=455`
-  - `benchmark.avg_ms=9.1`
+- graph workflow, normal build, 50 iterations:
+  - `benchmark.total_ms=360`
+  - `benchmark.avg_ms=7.2`
+- graph workflow, ASan/UBSan build, 50 iterations:
+  - `benchmark.total_ms=587`
+  - `benchmark.avg_ms=11.74`
 
 These are early baseline measurements, not yet stable product benchmarks.
 
@@ -89,7 +101,8 @@ Residual concerns:
 
 - benchmark evidence is still narrow and noisy
 - sanitizer coverage does not yet include thread-safety checks
-- the current workflow format is still a toy format
+- graph execution is still limited to single-input DAG nodes and a simple text graph format
+- diagnostics are still emitted as text, not yet normalized runtime event records
 
 ## Verification Verdict
 
@@ -104,6 +117,6 @@ Current verdict:
 Return to `Implementation execution` and continue with:
 
 1. richer workflow representation
-2. stderr and diagnostics capture
-3. broader memory and concurrency verification
-4. additional runtime examples beyond the current two toy workflows
+2. broader memory and concurrency verification
+3. additional runtime examples beyond the current two toy workflows
+4. structured runtime diagnostics and event normalization
