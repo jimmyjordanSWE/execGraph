@@ -7,6 +7,7 @@
 ![C++ 17](https://img.shields.io/badge/C%2B%2B-17-00599C)
 ![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB)
 ![Platform: Linux](https://img.shields.io/badge/platform-Linux-FCC624)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
 On March 9, 2026, I explored two connected questions:
 
@@ -183,3 +184,7 @@ The most promising direction is not another generic workflow engine. It is an ag
 ## Status
 
 This repository is a preserved research prototype from a single-day build. It is not under active development and is not production-ready. The remaining architecture is documented so the experiment can be inspected, evaluated, or resumed without pretending that the larger system already exists.
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).
