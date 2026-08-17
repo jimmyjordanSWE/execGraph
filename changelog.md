@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-08-17
+
+- Reframed the repository as an honest public case study of the March 9 one-day experiment, separating the autoSWE development method from the ExecGraph product hypothesis.
+- Documented the stronger agent-execution-ledger direction, its security boundary, and the difference between implemented runtime foundations and future sandboxing and provenance work.
+- Added a reproducible Linux CI workflow and explicit prototype security warning.
+- Sanitized the committed design-ledger snapshot by removing generated code-index rows and machine-specific paths while retaining the experiment's decisions, artifacts, constraint packages, and audit events.
+- Removed a redundant copy of the original AI-assisted software-design reference transcript.
+
 ## 2026-03-09
 
 - Added owned process-group supervision and per-command `timeout_ms` / `graceful_shutdown_ms` controls to exec-graph workflows and graph nodes, with timeout-driven `SIGTERM` then `SIGKILL` behavior plus `process.stop.requested` and `process.kill.sent` runtime events and smoke coverage.

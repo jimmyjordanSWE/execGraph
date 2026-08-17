@@ -16,7 +16,7 @@ Canonical workflow files live under:
 
 The source-of-truth tool is:
 
-- [autoSWE CLI](../../autoswe/cli.py)
+- [autoSWE CLI](../../../autoswe/cli.py)
 
 ## Operating Model
 

@@ -19,7 +19,7 @@ Tooling:
 
 - [03-tooling/README.md](../03-tooling/README.md)
 - [designctl.md](../03-tooling/designctl.md)
-- [autoSWE CLI](../../autoswe/cli.py)
+- [autoSWE CLI](../../../autoswe/cli.py)
 - `.design/design.db`
 
 Background and rationale:
